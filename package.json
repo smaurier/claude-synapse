@@ -1,0 +1,21 @@
+{
+  "name": "claude-synapse",
+  "version": "0.1.0",
+  "description": "Don't sync memory across machines — link it. A Claude Code plugin for a single memory hub referenced by junction/symlink from every machine and every project, never copied.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0"
+  }
+}
