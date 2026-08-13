@@ -62,13 +62,13 @@ describe("local config (per-machine, outside the hub, never synced)", () => {
   it("round-trips a written local config", () => {
     const localPath = join(root, "local-config.json");
     writeLocalConfig(localPath, {
-      hubUrl: "git@github.com:smaurier/my-hub.git",
+      hubUrl: "git@github.com:example-user/my-hub.git",
       hubClonePath: join(root, "hub"),
-      machineId: "lrtechnologies",
+      machineId: "workstation-a",
     });
     const cfg = readLocalConfig(localPath);
-    expect(cfg.hubUrl).toBe("git@github.com:smaurier/my-hub.git");
-    expect(cfg.machineId).toBe("lrtechnologies");
+    expect(cfg.hubUrl).toBe("git@github.com:example-user/my-hub.git");
+    expect(cfg.machineId).toBe("workstation-a");
   });
 
   it("requires a non-empty hubUrl", () => {

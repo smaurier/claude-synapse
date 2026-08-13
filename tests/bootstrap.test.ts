@@ -39,11 +39,11 @@ describe("bootstrap — order of operations", () => {
     });
 
     await bootstrap({
-      hubUrl: "git@github.com:smaurier/my-hub.git",
+      hubUrl: "git@github.com:example-user/my-hub.git",
       localConfigPath,
       hubClonePath,
       linkPath,
-      machineId: "lrtechnologies",
+      machineId: "workstation-a",
       cloneOrPullHub,
       createHubLink,
       verifyLink,
@@ -61,11 +61,11 @@ describe("bootstrap — order of operations", () => {
     });
 
     const result = await bootstrap({
-      hubUrl: "git@github.com:smaurier/my-hub.git",
+      hubUrl: "git@github.com:example-user/my-hub.git",
       localConfigPath,
       hubClonePath,
       linkPath,
-      machineId: "lrtechnologies",
+      machineId: "workstation-a",
       cloneOrPullHub,
       createHubLink: vi.fn(),
       verifyLink: vi.fn(() => true),
@@ -82,11 +82,11 @@ describe("bootstrap — order of operations", () => {
     });
 
     const result = await bootstrap({
-      hubUrl: "git@github.com:smaurier/my-hub.git",
+      hubUrl: "git@github.com:example-user/my-hub.git",
       localConfigPath,
       hubClonePath,
       linkPath,
-      machineId: "sylva",
+      machineId: "workstation-b",
       cloneOrPullHub,
       createHubLink: vi.fn(),
       verifyLink: vi.fn(() => true),
@@ -102,11 +102,11 @@ describe("bootstrap — order of operations", () => {
 
     await expect(
       bootstrap({
-        hubUrl: "git@github.com:smaurier/my-hub.git",
+        hubUrl: "git@github.com:example-user/my-hub.git",
         localConfigPath,
         hubClonePath,
         linkPath,
-        machineId: "lrtechnologies",
+        machineId: "workstation-a",
         cloneOrPullHub,
         createHubLink: vi.fn(),
         verifyLink: vi.fn(() => false),
