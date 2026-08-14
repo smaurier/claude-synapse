@@ -1,0 +1,21 @@
+feat(commands): couche CLI pour brain-search et refresh-index
+
+src/commands/brainSearch.ts + brainSearchCli.ts : point d'entree reel de
+/brain-search. La logique testable (runBrainSearch) resout LocalConfig
+depuis pluginDataDir puis delegue a searchHub.ts ; le CLI (argv/stdout/
+exit code) reste volontairement fin, non teste directement.
+
+src/commands/refreshIndex.ts + refreshIndexCli.ts : meme pattern pour le
+futur hook SessionStart. refreshHubIndex() ajoute a searchHub.ts (factorise
+l'ouverture du store, partagee avec searchHub()) pour rafraichir l'index
+sans lancer de recherche. Echecs non-bloquants par design (exit 1, jamais
+2) sauf l'etat "pas encore initialise" qui est silencieux - normal avant
+le premier /synapse-init, pas une erreur a chaque session.
+
+pluginDataDir toujours pris en parametre explicite, jamais lu depuis
+process.env.CLAUDE_PLUGIN_DATA directement - substitue dans le texte de
+la commande skill/hook, conformement a la decision du 14/08.
+
+81/81 tests passent, typecheck propre.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>

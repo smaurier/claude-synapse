@@ -1,0 +1,37 @@
+/**
+ * The actual process entrypoint invoked by the SessionStart hook
+ * (hooks/hooks.json):
+ *   node "${CLAUDE_PLUGIN_ROOT}/dist/commands/refreshIndexCli.js" "${CLAUDE_PLUGIN_DATA}"
+ *
+ * Deliberately thin, same rationale as brainSearchCli.ts. Failures here are
+ * non-blocking by design (exit 1, never 2 — a hook exiting 2 blocks the
+ * session per hooks.md, and a stale search index is never worth blocking a
+ * session over) except for the expected "not initialized yet" state, which
+ * is silent: every session before the first /synapse-init would otherwise
+ * print an alarming error for a perfectly normal pre-setup condition.
+ */
+
+import { runRefreshIndex } from "./refreshIndex.js";
+
+async function main(): Promise<void> {
+  const [pluginDataDir] = process.argv.slice(2);
+
+  if (!pluginDataDir) {
+    console.error("Usage: refreshIndexCli <pluginDataDir>");
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    await runRefreshIndex(pluginDataDir);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("synapse-init")) {
+      return; // not initialized yet — normal, nothing to refresh
+    }
+    console.error(`synapse: échec du rafraîchissement de l'index — ${message}`);
+    process.exitCode = 1;
+  }
+}
+
+main();

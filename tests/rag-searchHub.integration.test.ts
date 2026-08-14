@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { searchHub } from "../src/rag/searchHub.js";
+import { searchHub, refreshHubIndex } from "../src/rag/searchHub.js";
 
 // Real model, real tokenizer, real corpus walk on an actual directory — the
 // end-to-end proof for the piece that will sit behind bin/brain-search.
@@ -44,5 +44,18 @@ describe("searchHub", () => {
 
     expect(results.every((r) => !r.path.startsWith(".synapse"))).toBe(true);
     expect(existsSync(join(hub, ".synapse", "index.sqlite"))).toBe(true);
+  }, 120_000);
+});
+
+describe("refreshHubIndex", () => {
+  it("builds the index without running a search, ready for a later searchHub() call", async () => {
+    writeFileSync(join(hub, "chat.md"), "Le chat dort sur le canapé toute la journée.", "utf8");
+
+    await refreshHubIndex(hub);
+    expect(existsSync(join(hub, ".synapse", "index.sqlite"))).toBe(true);
+
+    // A later search shouldn't need to re-embed anything (fingerprint unchanged).
+    const results = await searchHub(hub, "chat", 1);
+    expect(results[0]?.path).toBe("chat.md");
   }, 120_000);
 });
