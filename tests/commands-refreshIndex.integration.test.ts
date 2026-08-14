@@ -34,8 +34,25 @@ describe("runRefreshIndex", () => {
     });
     writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
 
-    await runRefreshIndex(pluginDataDir);
+    const result = await runRefreshIndex(pluginDataDir);
 
     expect(existsSync(join(hubDir, ".synapse", "index.sqlite"))).toBe(true);
+    expect(result.auditTriggered).toBe(false); // no projectDir given — audit needs it for linkPath
+  }, 120_000);
+
+  it("triggers /synapse-doctor automatically when the audit cadence is overdue and a projectDir is given", async () => {
+    writeLocalConfig(join(pluginDataDir, "local-config.json"), {
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      hubClonePath: hubDir,
+      machineId: "test-machine",
+    });
+    writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
+    const projectDir = join(root, "mon-projet");
+    mkdirSync(join(projectDir, ".claude"), { recursive: true });
+
+    const result = await runRefreshIndex(pluginDataDir, projectDir);
+
+    expect(result.auditTriggered).toBe(true); // lastAuditAt was never set — overdue by definition
+    expect(result.auditReport?.fileCount).toBe(1);
   }, 120_000);
 });

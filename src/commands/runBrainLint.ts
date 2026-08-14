@@ -9,7 +9,7 @@
 import { readLocalConfig, defaultLocalConfigPath } from "../config/config.js";
 import { loadCorpus } from "../rag/corpus.js";
 import { embedLocal } from "../rag/embeddingProvider.js";
-import { lintCorpus, findMergeCandidates, type LintFinding, type MergeCandidate } from "./brainLint.js";
+import { lintCorpus, findMergeCandidates, checkWipLimit, type LintFinding, type MergeCandidate } from "./brainLint.js";
 
 export interface BrainLintReport {
   findings: LintFinding[];
@@ -20,7 +20,7 @@ export async function runBrainLint(pluginDataDir: string): Promise<BrainLintRepo
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   const corpus = loadCorpus(local.hubClonePath);
 
-  const findings = lintCorpus(corpus);
+  const findings = [...lintCorpus(corpus), ...checkWipLimit(corpus)];
   const mergeCandidates = await findMergeCandidates(corpus, embedLocal);
 
   return { findings, mergeCandidates };

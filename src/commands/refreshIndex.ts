@@ -10,16 +10,48 @@
  * utilisateur" per the multi-slug design, cheap enough to check every
  * session. Optional rather than required so this stays backward
  * compatible with callers that only care about the index refresh.
+ *
+ * Also implements problème 5's daemon-less periodic trigger: checks
+ * SharedConfig.lastAuditAt against auditCadenceDays and runs
+ * /synapse-doctor automatically when overdue — the mechanism was designed
+ * (13/08) but nothing ever actually performed the audit or advanced the
+ * timestamp until this. Only runs when projectDir is given (need it to
+ * derive linkPath for the doctor run).
  */
 
-import { readLocalConfig, defaultLocalConfigPath } from "../config/config.js";
+import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
 import { refreshHubIndex } from "../rag/searchHub.js";
 import { ensureCurrentProjectLinked } from "./refreshProjects.js";
+import { runSynapseDoctor, type SynapseDoctorReport } from "./synapseDoctor.js";
+import { join } from "node:path";
 
-export async function runRefreshIndex(pluginDataDir: string, projectDir?: string): Promise<void> {
+export interface RefreshIndexResult {
+  auditTriggered: boolean;
+  auditReport?: SynapseDoctorReport;
+}
+
+export function isAuditOverdue(lastAuditAt: string | null, cadenceDays: number): boolean {
+  if (!lastAuditAt) return true; // never audited — overdue by definition, catches up immediately
+  const last = new Date(lastAuditAt);
+  if (Number.isNaN(last.getTime())) return true;
+  return Date.now() - last.getTime() > cadenceDays * 24 * 60 * 60 * 1000;
+}
+
+export async function runRefreshIndex(pluginDataDir: string, projectDir?: string): Promise<RefreshIndexResult> {
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   if (projectDir) {
     ensureCurrentProjectLinked(projectDir, localConfig.hubClonePath);
   }
   await refreshHubIndex(localConfig.hubClonePath);
+
+  if (!projectDir) return { auditTriggered: false };
+
+  const shared = readSharedConfig(localConfig.hubClonePath);
+  if (!isAuditOverdue(shared.lastAuditAt, shared.auditCadenceDays)) {
+    return { auditTriggered: false };
+  }
+
+  const linkPath = join(projectDir, ".claude", "memory");
+  const auditReport = await runSynapseDoctor(pluginDataDir, linkPath);
+  return { auditTriggered: true, auditReport };
 }

@@ -36,7 +36,11 @@ async function main(): Promise<void> {
   }
 
   try {
-    await runRefreshIndex(pluginDataDir, projectDir);
+    const result = await runRefreshIndex(pluginDataDir, projectDir);
+    if (result.auditTriggered && result.auditReport) {
+      const r = result.auditReport;
+      console.log(`synapse: audit périodique déclenché (cadence dépassée) — ${r.fileCount} fichiers, ${r.findings.length} signalement(s), ${r.mergeCandidates.length} candidat(s) fusion.`);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`synapse: échec du rafraîchissement de l'index — ${message}`);

@@ -110,6 +110,42 @@ export function lintCorpus(files: { path: string; content: string }[], today: Da
   return files.flatMap((f) => lintFile(f.path, f.content, today));
 }
 
+const DEFAULT_WIP_LIMIT = 5;
+
+/**
+ * WIP limiter (périmètre IN) — counts `project`-type memories that are
+ * currently active (expires: ongoing, or a future date) and flags it as a
+ * single corpus-wide finding if over the limit. Deliberately a count, not
+ * a judgment call about which projects to close — that's for the user.
+ */
+export function checkWipLimit(
+  files: { path: string; content: string }[],
+  today: Date = new Date(),
+  limit = DEFAULT_WIP_LIMIT,
+): LintFinding[] {
+  const activeProjects = files.filter((f) => {
+    const fm = extractFrontmatter(f.content);
+    if (fm?.fields["metadata.type"] !== "project") return false;
+    const expires = fm.fields["metadata.expires"];
+    if (!expires) return true; // no expiry set at all — still counts as active
+    if (expires === "ongoing") return true;
+    const expiryDate = new Date(expires);
+    return Number.isNaN(expiryDate.getTime()) || expiryDate >= today;
+  });
+
+  if (activeProjects.length <= limit) return [];
+
+  return [
+    {
+      path: "(corpus)",
+      severity: "warning",
+      message:
+        `${activeProjects.length} mémoires "project" actives simultanément (limite indicative : ${limit}) — ` +
+        `envisager d'en clôturer avant d'en ouvrir de nouvelles : ${activeProjects.map((f) => f.path).join(", ")}.`,
+    },
+  ];
+}
+
 export interface MergeCandidate {
   a: string;
   b: string;
