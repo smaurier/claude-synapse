@@ -10,7 +10,13 @@ Première configuration de Synapse pour cette machine et ce projet. Sûr à rela
 un deuxième appel ne recrée rien qui est déjà correct.
 
 1. Si l'utilisateur n'a pas déjà donné l'URL de son hub git dans ce message, la demander
-   explicitement (ex: `git@github.com:<user>/<repo>.git`). Ne pas deviner.
+   explicitement. **Suggérer la forme HTTPS par défaut** (`https://github.com/<user>/<repo>.git`),
+   pas SSH (`git@github.com:...`) : SSH exige une clé déjà configurée sur ce poste précis, qui
+   n'existe pas forcément, alors que HTTPS réutilise souvent des identifiants déjà en place
+   (`gh` CLI, Git Credential Manager) sans rien à configurer. Si le clonage échoue en `Permission
+   denied (publickey)` malgré tout, c'est le signal qu'il fallait HTTPS depuis le départ — le
+   proposer immédiatement plutôt que de creuser la configuration SSH. Ne jamais deviner l'URL
+   elle-même.
 
 2. La commande vérifie elle-même la visibilité du hub sur GitHub et **refuse d'initialiser**
    si le dépôt est public — inutile de le demander à l'utilisateur pour un hub GitHub. Pour un
