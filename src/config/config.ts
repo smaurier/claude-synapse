@@ -23,6 +23,11 @@ export interface SharedConfig {
   lockTimeoutMinutes: number;
   auditCadenceDays: number;
   lastAuditAt: string | null;
+  /** brain-lint's WIP limiter threshold — found 14/08 hardcoded at 5 with
+   *  no way to adjust it: flagged as noise on a real hub with ~40 active
+   *  projects, where 5 fires on nearly every run. Configurable per hub
+   *  rather than guessing a "correct" generic default. */
+  wipLimit: number;
 }
 
 export const DEFAULT_SHARED_CONFIG: SharedConfig = {
@@ -32,6 +37,7 @@ export const DEFAULT_SHARED_CONFIG: SharedConfig = {
   lockTimeoutMinutes: 10,
   auditCadenceDays: 14,
   lastAuditAt: null,
+  wipLimit: 5,
 };
 
 function sharedConfigPath(hubDir: string): string {

@@ -50,9 +50,12 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
     linkAutoFixed = true;
   }
 
-  // Problème 4 health-check + /brain-lint, in one corpus load.
+  // Problème 4 health-check + /brain-lint, in one corpus load. wipLimit
+  // read unlocked (a read, not a write) — the lock below only guards the
+  // lastAuditAt write.
   const corpus = loadCorpus(local.hubClonePath);
-  const findings = [...lintCorpus(corpus), ...checkWipLimit(corpus)];
+  const sharedForRead = readSharedConfig(local.hubClonePath);
+  const findings = [...lintCorpus(corpus), ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit)];
   const mergeCandidates = await findMergeCandidates(corpus, embedLocal, chunkFileForEmbedding);
 
   // Problème 5: this run IS the audit — record it, locked like any other

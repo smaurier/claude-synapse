@@ -39,6 +39,13 @@ describe("setSynapseConfig", () => {
     expect((await showSynapseConfig(pluginDataDir)).lockTimeoutMinutes).toBe(42);
   });
 
+  // Added 14/08: found hardcoded at 5 with no way to adjust it, flagged as
+  // noise on a real hub with far more active projects than that default.
+  it("makes wipLimit configurable (was hardcoded, no way to raise it for a bigger real hub)", async () => {
+    const updated = await setSynapseConfig(pluginDataDir, "wipLimit", "40");
+    expect(updated.wipLimit).toBe(40);
+  });
+
   it("refuses to set a non-editable key", async () => {
     await expect(setSynapseConfig(pluginDataDir, "version", "2")).rejects.toThrow(/non modifiable/);
   });

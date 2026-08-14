@@ -16,7 +16,7 @@
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG, type SharedConfig } from "../config/config.js";
 import { acquireLock, releaseLock } from "../lock/lock.js";
 
-export const NUMERIC_EDITABLE_KEYS = ["lockTimeoutMinutes", "auditCadenceDays"] as const;
+export const NUMERIC_EDITABLE_KEYS = ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit"] as const;
 export type NumericEditableKey = (typeof NUMERIC_EDITABLE_KEYS)[number];
 export const EDITABLE_KEYS = [...NUMERIC_EDITABLE_KEYS, "refreshProjectsExclusions"] as const;
 
