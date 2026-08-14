@@ -72,3 +72,43 @@ describe("VectorStore", () => {
     reopened.close();
   });
 });
+
+describe("VectorStore — incremental rebuild support", () => {
+  it("deleteChunksForSourcePath removes the bare-path row and every #N chunk of that file", () => {
+    store.upsert("big.md", [1, 0, 0]);
+    store.upsert("big.md#0", [1, 0, 0]);
+    store.upsert("big.md#1", [1, 0, 0]);
+    store.upsert("other.md", [0, 1, 0]); // must survive — different source file
+
+    store.deleteChunksForSourcePath("big.md");
+
+    const results = store.search([1, 0, 0], 10);
+    expect(results.map((r) => r.path)).toEqual(["other.md"]);
+  });
+
+  it("tracks and retrieves per-file content hashes", () => {
+    expect(store.getFileHashes()).toEqual({});
+    store.setFileHash("a.md", "hash-a");
+    store.setFileHash("b.md", "hash-b");
+    expect(store.getFileHashes()).toEqual({ "a.md": "hash-a", "b.md": "hash-b" });
+  });
+
+  it("setFileHash overwrites an existing hash for the same path", () => {
+    store.setFileHash("a.md", "old");
+    store.setFileHash("a.md", "new");
+    expect(store.getFileHashes()).toEqual({ "a.md": "new" });
+  });
+
+  it("deleteFileHash removes only the given path's hash", () => {
+    store.setFileHash("a.md", "hash-a");
+    store.setFileHash("b.md", "hash-b");
+    store.deleteFileHash("a.md");
+    expect(store.getFileHashes()).toEqual({ "b.md": "hash-b" });
+  });
+
+  it("clear() also wipes file hashes, not just vectors", () => {
+    store.setFileHash("a.md", "hash-a");
+    store.clear();
+    expect(store.getFileHashes()).toEqual({});
+  });
+});

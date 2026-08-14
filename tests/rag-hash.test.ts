@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCorpusFingerprint } from "../src/rag/hash.js";
+import { computeCorpusFingerprint, hashFileContent } from "../src/rag/hash.js";
 
 describe("computeCorpusFingerprint", () => {
   it("is stable for the same content", () => {
@@ -32,5 +32,15 @@ describe("computeCorpusFingerprint", () => {
       { path: "a.md", content: "1" },
     ];
     expect(computeCorpusFingerprint(a)).toBe(computeCorpusFingerprint(b));
+  });
+});
+
+describe("hashFileContent", () => {
+  it("is stable for identical content", () => {
+    expect(hashFileContent("hello")).toBe(hashFileContent("hello"));
+  });
+
+  it("differs for different content", () => {
+    expect(hashFileContent("hello")).not.toBe(hashFileContent("hello world"));
   });
 });

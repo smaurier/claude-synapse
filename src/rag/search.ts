@@ -10,10 +10,18 @@
  * tokenChunk.chunkFileByTokens — the exact, tokenizer-backed method the user
  * asked for on 13/08 after a character-ratio estimate ("faut-il envisager
  * autre chose ?") turned out to be unreliable across languages/content.
+ *
+ * Incremental since 14/08 — was "full rebuild, not incremental (corpus is
+ * small enough that incremental diffing buys nothing but drift risk)".
+ * That assumption held at design time; the real-hub test the same day
+ * measured otherwise (121 files, a full rebuild on every single edit felt
+ * "très long" in practice). Per-file content hashes (hash.ts) now decide
+ * which files actually need re-chunking/re-embedding — unchanged files are
+ * skipped entirely, not just the whole-corpus fast path.
  */
 
 import { chunkFile, sourcePathFromChunkId, type Chunk } from "./chunk.js";
-import { computeCorpusFingerprint, type CorpusFile } from "./hash.js";
+import { computeCorpusFingerprint, hashFileContent, type CorpusFile } from "./hash.js";
 import type { SearchResult, VectorStore } from "./store.js";
 
 // Async because a real local model (see embeddingProvider.ts) can't embed
@@ -22,11 +30,12 @@ import type { SearchResult, VectorStore } from "./store.js";
 export type EmbeddingProvider = (text: string) => number[] | Promise<number[]>;
 export type ChunkFn = (path: string, content: string) => Chunk[] | Promise<Chunk[]>;
 
-/** Rebuilds the whole index only if the corpus fingerprint changed since the
- *  last build — full rebuild, not incremental (deliberate simplicity, see
- *  problème 4: corpus is small enough that incremental diffing buys nothing
- *  but drift risk). Long files are chunked first so nothing past the
- *  embedding model's input window goes silently unindexed. */
+/** Rebuilds only what changed since the last build. The whole-corpus
+ *  fingerprint is still the fast first check (nothing changed at all ->
+ *  skip everything, no per-file diffing needed); once that says something
+ *  did change, per-file hashes narrow the actual work to added/modified
+ *  files, and remove chunks for files that disappeared from the corpus.
+ *  Unchanged files are never re-chunked or re-embedded. */
 export async function rebuildIfStale(
   store: VectorStore,
   corpus: CorpusFile[],
@@ -36,12 +45,29 @@ export async function rebuildIfStale(
   const fingerprint = computeCorpusFingerprint(corpus);
   if (store.getFingerprint() === fingerprint) return;
 
-  store.clear();
+  const previousHashes = store.getFileHashes();
+  const currentPaths = new Set(corpus.map((f) => f.path));
+
+  // Files removed from the corpus since the last build: drop their chunks.
+  for (const path of Object.keys(previousHashes)) {
+    if (!currentPaths.has(path)) {
+      store.deleteChunksForSourcePath(path);
+      store.deleteFileHash(path);
+    }
+  }
+
+  // Files added or changed: re-chunk and re-embed only those.
   for (const file of corpus) {
+    const newHash = hashFileContent(file.content);
+    if (previousHashes[file.path] === newHash) continue; // unchanged — skip entirely
+
+    store.deleteChunksForSourcePath(file.path); // clear stale chunks if this file existed before
     for (const chunk of await chunkFn(file.path, file.content)) {
       store.upsert(chunk.chunkId, await embed(chunk.text));
     }
+    store.setFileHash(file.path, newHash);
   }
+
   store.setFingerprint(fingerprint);
 }
 

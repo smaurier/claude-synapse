@@ -59,6 +59,50 @@ describe("rebuildIfStale", () => {
     await rebuildIfStale(store, [{ path: "a.md", content: "changed" }], embed);
     expect(embed).toHaveBeenCalledTimes(1);
   });
+
+  it("incremental: only re-embeds the file that changed, leaves unchanged files alone", async () => {
+    const embed = vi.fn(fakeEmbed);
+    const corpus = [
+      { path: "a.md", content: "aaa" },
+      { path: "b.md", content: "bbb" },
+      { path: "c.md", content: "ccc" },
+    ];
+    await rebuildIfStale(store, corpus, embed);
+    embed.mockClear();
+
+    const updated = [
+      { path: "a.md", content: "aaa" }, // unchanged
+      { path: "b.md", content: "modifié" }, // changed
+      { path: "c.md", content: "ccc" }, // unchanged
+    ];
+    await rebuildIfStale(store, updated, embed);
+
+    expect(embed).toHaveBeenCalledTimes(1);
+    expect(embed).toHaveBeenCalledWith("modifié");
+  });
+
+  it("incremental: removes chunks for a file deleted from the corpus, without touching others", async () => {
+    const embed = vi.fn(fakeEmbed);
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }, { path: "b.md", content: "bbb" }], embed);
+    embed.mockClear();
+
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }], embed); // b.md removed
+
+    expect(embed).not.toHaveBeenCalled(); // a.md unchanged, nothing to re-embed
+    const results = store.search([0, 0, 0], 10);
+    expect(results.some((r) => r.path === "b.md")).toBe(false);
+  });
+
+  it("incremental: adding a new file only embeds the new one", async () => {
+    const embed = vi.fn(fakeEmbed);
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }], embed);
+    embed.mockClear();
+
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }, { path: "b.md", content: "bbb" }], embed);
+
+    expect(embed).toHaveBeenCalledTimes(1);
+    expect(embed).toHaveBeenCalledWith("bbb");
+  });
 });
 
 describe("brainSearch", () => {

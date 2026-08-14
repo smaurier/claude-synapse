@@ -57,6 +57,10 @@ export class VectorStore {
         key TEXT PRIMARY KEY,
         value TEXT
       );
+      CREATE TABLE IF NOT EXISTS file_hashes (
+        path TEXT PRIMARY KEY,
+        hash TEXT NOT NULL
+      );
     `);
   }
 
@@ -83,6 +87,32 @@ export class VectorStore {
 
   clear(): void {
     this.db.exec("DELETE FROM vectors");
+    this.db.exec("DELETE FROM file_hashes");
+  }
+
+  /** Removes every chunk belonging to one source file — both the bare
+   *  "path" row (short files, no suffix) and any "path#N" rows (chunked
+   *  files). Used by incremental rebuilds before re-embedding a changed
+   *  file, and when a file disappears from the corpus entirely. */
+  deleteChunksForSourcePath(sourcePath: string): void {
+    this.db.prepare("DELETE FROM vectors WHERE path = ? OR path LIKE ?").run(sourcePath, `${sourcePath}#%`);
+  }
+
+  /** path -> content hash, for every source file currently indexed —
+   *  the incremental rebuild's basis for "what changed since last time". */
+  getFileHashes(): Record<string, string> {
+    const rows = this.db.prepare("SELECT path, hash FROM file_hashes").all() as Array<{ path: string; hash: string }>;
+    return Object.fromEntries(rows.map((r) => [r.path, r.hash]));
+  }
+
+  setFileHash(path: string, hash: string): void {
+    this.db
+      .prepare("INSERT INTO file_hashes (path, hash) VALUES (?, ?) ON CONFLICT(path) DO UPDATE SET hash = excluded.hash")
+      .run(path, hash);
+  }
+
+  deleteFileHash(path: string): void {
+    this.db.prepare("DELETE FROM file_hashes WHERE path = ?").run(path);
   }
 
   getFingerprint(): string | null {

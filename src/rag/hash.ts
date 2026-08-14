@@ -24,3 +24,13 @@ export function computeCorpusFingerprint(files: CorpusFile[]): string {
   }
   return hash.digest("hex");
 }
+
+/** Per-file content hash — what the incremental rebuild (search.ts) diffs
+ *  against to decide which files actually need re-chunking/re-embedding,
+ *  instead of the whole-corpus fingerprint invalidating everything on any
+ *  single change. Added 14/08 after the real-hub test: a 121-file corpus
+ *  full-rebuilding on every edit was measurably slow ("le temps a été très
+ *  long") — most of those files hadn't changed at all. */
+export function hashFileContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
