@@ -53,4 +53,14 @@ describe("setSynapseConfig", () => {
 
     await expect(setSynapseConfig(pluginDataDir, "lockTimeoutMinutes", "5")).rejects.toThrow(/verrou/);
   });
+
+  it("parses refreshProjectsExclusions as a comma-separated list of exact directory names", async () => {
+    const updated = await setSynapseConfig(pluginDataDir, "refreshProjectsExclusions", "archive, node_modules,old-stuff");
+    expect(updated.refreshProjectsExclusions).toEqual(["archive", "node_modules", "old-stuff"]);
+  });
+
+  it("sets an empty exclusions list from an empty string", async () => {
+    const updated = await setSynapseConfig(pluginDataDir, "refreshProjectsExclusions", "");
+    expect(updated.refreshProjectsExclusions).toEqual([]);
+  });
 });
