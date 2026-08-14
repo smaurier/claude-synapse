@@ -9,8 +9,8 @@
  * service needed.
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 interface LockFile {
   machineId: string;
@@ -32,7 +32,12 @@ function readLock(hubDir: string): LockFile | null {
 }
 
 function writeLock(hubDir: string, machineId: string, at: Date): void {
-  writeFileSync(lockPath(hubDir), JSON.stringify({ machineId, acquiredAt: at.toISOString() }, null, 2), "utf8");
+  const path = lockPath(hubDir);
+  // A freshly cloned hub (bootstrap's first machine) has no .synapse/ yet —
+  // found 14/08 wiring the lock into bootstrap.ts, masked until then because
+  // lock.test.ts's fixture always pre-created the directory.
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ machineId, acquiredAt: at.toISOString() }, null, 2), "utf8");
 }
 
 /**

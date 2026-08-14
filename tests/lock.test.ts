@@ -16,6 +16,16 @@ afterEach(() => {
 });
 
 describe("acquireLock", () => {
+  it("acquires on a freshly cloned hub with no .synapse/ directory yet", () => {
+    const freshHub = mkdtempSync(join(tmpdir(), "synapse-lock-fresh-"));
+    try {
+      const result = acquireLock(freshHub, "workstation-a", 10);
+      expect(result.acquired).toBe(true);
+    } finally {
+      rmSync(freshHub, { recursive: true, force: true });
+    }
+  });
+
   it("acquires freely when no lock exists", () => {
     const result = acquireLock(hubDir, "workstation-a", 10);
     expect(result.acquired).toBe(true);
