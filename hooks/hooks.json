@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/refreshIndexCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/refreshIndexCli.js\" \"${CLAUDE_PLUGIN_DATA}\" \"${CLAUDE_PROJECT_DIR}\"",
             "timeout": 120,
             "statusMessage": "Synapse : vérification de l'index mémoire…"
           }
