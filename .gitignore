@@ -5,3 +5,4 @@ dist/
 .env
 .synapse/
 *.log
+.git-commit-msg.txt
