@@ -31,6 +31,9 @@ async function main(): Promise<void> {
     if (result.link.backupPath) {
       console.log(`synapse: sauvegarde visible à "${result.link.backupPath}".`);
     }
+    if (result.visibilityWarning) {
+      console.log(result.visibilityWarning);
+    }
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;

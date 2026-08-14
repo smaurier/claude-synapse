@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,5 +82,29 @@ describe("runSynapseInit", () => {
     expect(existsSync(join(result.link.backupPath!, "local-only.md"))).toBe(true);
     // The link now shows the hub's content, not the backed-up local one.
     expect(existsSync(join(linkPath, "existing-memory.md"))).toBe(true);
+  }, 15_000);
+});
+
+describe("runSynapseInit — hub visibility gate", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses outright when the hub is confirmed public on GitHub, without touching the filesystem", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ status: 200, json: async () => ({ private: false }) }) as Response),
+    );
+
+    await expect(
+      runSynapseInit({ pluginDataDir, hubUrl: "git@github.com:example-user/public-hub.git", linkPath }),
+    ).rejects.toThrow(/PUBLIC/);
+
+    expect(existsSync(join(pluginDataDir, "local-config.json"))).toBe(false);
+  });
+
+  it("surfaces a visibility warning (not a refusal) when the host can't be checked, e.g. a local bare repo", async () => {
+    const result = await runSynapseInit({ pluginDataDir, hubUrl: bareRepoPath, linkPath });
+    expect(result.visibilityWarning).toMatch(/non vérifiable/);
   }, 15_000);
 });

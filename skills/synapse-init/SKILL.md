@@ -12,9 +12,11 @@ un deuxième appel ne recrée rien qui est déjà correct.
 1. Si l'utilisateur n'a pas déjà donné l'URL de son hub git dans ce message, la demander
    explicitement (ex: `git@github.com:<user>/<repo>.git`). Ne pas deviner.
 
-2. **Avant de continuer**, rappeler à l'utilisateur de vérifier que ce dépôt est **privé**.
-   Rien ici ne le vérifie automatiquement pour l'instant (limite connue, pas cachée) — le
-   scan de secrets protège le contenu, pas la visibilité du repo.
+2. La commande vérifie elle-même la visibilité du hub sur GitHub et **refuse d'initialiser**
+   si le dépôt est public — inutile de le demander à l'utilisateur pour un hub GitHub. Pour un
+   hébergeur autre que GitHub (GitLab, Bitbucket, self-hosted), la vérification automatique est
+   impossible : la commande le signale explicitement dans son résultat, à relayer tel quel à
+   l'utilisateur (lui demander de vérifier manuellement que le dépôt est privé).
 
 3. Déterminer où lier la mémoire pour CE projet. Par défaut, proposer un sous-dossier du projet
    courant (ex: `./memory` à la racine du projet) et confirmer avec l'utilisateur plutôt que
