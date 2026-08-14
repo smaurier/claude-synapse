@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,5 +47,24 @@ describe("runBrainLint", () => {
 
     expect(report.findings.some((f) => f.path === "cassé.md")).toBe(true);
     expect(report.mergeCandidates.some((c) => [c.a, c.b].includes("a.md") && [c.a, c.b].includes("b.md"))).toBe(true);
+  }, 120_000);
+
+  // Regression (14/08, found on the real 121-file hub): findMergeCandidates
+  // used to embed each file's full raw content directly, triggering
+  // embedLocal's own "shouldn't happen" truncation warning for every file
+  // over ~128 tokens. Proves the real pipeline (not just the fake-embed
+  // unit test) chunks first — the warning must never fire here.
+  it("never triggers the model's truncation warning — proves real chunking, not raw full-file embedding", async () => {
+    const longContent = "Décision du 22/07/2026 sur le projet Synapse et son architecture. ".repeat(30);
+    writeFileSync(
+      join(hubDir, "long.md"),
+      `---\nname: long\ndescription: x\nmetadata:\n  type: reference\n---\n${longContent}`,
+      "utf8",
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runBrainLint(pluginDataDir);
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("dépasse la limite"));
+    warnSpy.mockRestore();
   }, 120_000);
 });

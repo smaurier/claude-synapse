@@ -9,6 +9,7 @@
  */
 
 import { cosineSimilarity } from "../rag/store.js";
+import { chunkFile, type Chunk } from "../rag/chunk.js";
 
 export interface Frontmatter {
   fields: Record<string, string>;
@@ -158,20 +159,50 @@ export interface MergeCandidate {
  * fast and model-free. embed is injected (same pattern as production.ts)
  * so this stays testable with a fake; the real wiring uses embedLocal.
  * Suggestions only, as designed — this never merges anything itself.
+ *
+ * Chunked before embedding — found 14/08 on the real 121-file hub: the
+ * first version embedded each file's FULL raw content directly, silently
+ * truncated by the model past its token window (embedLocal's own defensive
+ * warning fired for every file over the limit — "shouldn't happen if the
+ * text comes from chunkFileForEmbedding()", and it was happening, because
+ * this function never called it). That meant merge candidates were
+ * computed from only the first ~128 tokens of each file, not its real
+ * content — a likely contributor to an implausibly large false-positive
+ * count (3001 pairs at ≥0.85 on that corpus, including clearly unrelated
+ * files). chunkFn defaults to the character heuristic (fast, no model) for
+ * unit tests, matching production.ts's split; the real wiring uses
+ * chunkFileForEmbedding — same token-exact chunker as everything else,
+ * never a second, weaker chunking path.
+ *
+ * Two files are scored by the MAX similarity across any pair of their
+ * chunks — "these files overlap somewhere," not "their first chunks
+ * happen to be similar."
  */
 export async function findMergeCandidates(
   files: { path: string; content: string }[],
   embed: (text: string) => number[] | Promise<number[]>,
+  chunkFn: (path: string, content: string) => Chunk[] | Promise<Chunk[]> = chunkFile,
   threshold = 0.85,
 ): Promise<MergeCandidate[]> {
-  const embeddings = await Promise.all(files.map((f) => embed(f.content)));
-  const candidates: MergeCandidate[] = [];
+  const fileEmbeddings = await Promise.all(
+    files.map(async (f) => {
+      const chunks = await chunkFn(f.path, f.content);
+      return { path: f.path, embeddings: await Promise.all(chunks.map((c) => embed(c.text))) };
+    }),
+  );
 
-  for (let i = 0; i < files.length; i++) {
-    for (let j = i + 1; j < files.length; j++) {
-      const score = cosineSimilarity(embeddings[i]!, embeddings[j]!);
-      if (score >= threshold) {
-        candidates.push({ a: files[i]!.path, b: files[j]!.path, score });
+  const candidates: MergeCandidate[] = [];
+  for (let i = 0; i < fileEmbeddings.length; i++) {
+    for (let j = i + 1; j < fileEmbeddings.length; j++) {
+      let best = 0;
+      for (const eA of fileEmbeddings[i]!.embeddings) {
+        for (const eB of fileEmbeddings[j]!.embeddings) {
+          const score = cosineSimilarity(eA, eB);
+          if (score > best) best = score;
+        }
+      }
+      if (best >= threshold) {
+        candidates.push({ a: fileEmbeddings[i]!.path, b: fileEmbeddings[j]!.path, score: best });
       }
     }
   }

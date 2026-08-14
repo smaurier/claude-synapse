@@ -19,7 +19,7 @@
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../config/config.js";
 import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadCorpus } from "../rag/corpus.js";
-import { embedLocal } from "../rag/embeddingProvider.js";
+import { embedLocal, chunkFileForEmbedding } from "../rag/embeddingProvider.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
 import { lintCorpus, findMergeCandidates, checkWipLimit, type LintFinding, type MergeCandidate } from "./brainLint.js";
 
@@ -53,7 +53,7 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
   // Problème 4 health-check + /brain-lint, in one corpus load.
   const corpus = loadCorpus(local.hubClonePath);
   const findings = [...lintCorpus(corpus), ...checkWipLimit(corpus)];
-  const mergeCandidates = await findMergeCandidates(corpus, embedLocal);
+  const mergeCandidates = await findMergeCandidates(corpus, embedLocal, chunkFileForEmbedding);
 
   // Problème 5: this run IS the audit — record it, locked like any other
   // shared-config write.

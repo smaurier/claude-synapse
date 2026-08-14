@@ -8,7 +8,7 @@
 
 import { readLocalConfig, defaultLocalConfigPath } from "../config/config.js";
 import { loadCorpus } from "../rag/corpus.js";
-import { embedLocal } from "../rag/embeddingProvider.js";
+import { embedLocal, chunkFileForEmbedding } from "../rag/embeddingProvider.js";
 import { lintCorpus, findMergeCandidates, checkWipLimit, type LintFinding, type MergeCandidate } from "./brainLint.js";
 
 export interface BrainLintReport {
@@ -21,7 +21,9 @@ export async function runBrainLint(pluginDataDir: string): Promise<BrainLintRepo
   const corpus = loadCorpus(local.hubClonePath);
 
   const findings = [...lintCorpus(corpus), ...checkWipLimit(corpus)];
-  const mergeCandidates = await findMergeCandidates(corpus, embedLocal);
+  // chunkFileForEmbedding, not the default character heuristic — same
+  // token-exact chunker as production.ts, never a second weaker path.
+  const mergeCandidates = await findMergeCandidates(corpus, embedLocal, chunkFileForEmbedding);
 
   return { findings, mergeCandidates };
 }

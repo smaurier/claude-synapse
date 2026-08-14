@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, checkWipLimit } from "../src/commands/brainLint.js";
 
 const VALID_REFERENCE = `---
@@ -143,7 +143,7 @@ describe("findMergeCandidates", () => {
       { path: "c.md", content: "tout autre chose entièrement différent" },
     ];
 
-    const candidates = await findMergeCandidates(files, fakeEmbed, 0.99);
+    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
 
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({ a: "a.md", b: "b.md" });
@@ -154,7 +154,7 @@ describe("findMergeCandidates", () => {
       { path: "a.md", content: "aaa" },
       { path: "b.md", content: "zzz" },
     ];
-    expect(await findMergeCandidates(files, fakeEmbed, 0.99)).toEqual([]);
+    expect(await findMergeCandidates(files, fakeEmbed, undefined, 0.99)).toEqual([]);
   });
 
   it("sorts candidates by descending score", async () => {
@@ -163,8 +163,26 @@ describe("findMergeCandidates", () => {
       { path: "b.md", content: "aab" },
       { path: "c.md", content: "aaa" },
     ];
-    const candidates = await findMergeCandidates(files, fakeEmbed, 0);
+    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0);
     expect(candidates[0]!.score).toBeGreaterThanOrEqual(candidates.at(-1)!.score);
+  });
+
+  // Regression: the first version called embed(f.content) directly on the
+  // full raw file, bypassing chunking entirely — silently truncated by the
+  // real model past its token window, one embed() call per file no matter
+  // how long. Found 14/08 on the real 121-file hub via the model's own
+  // "shouldn't happen" truncation warning firing for every file.
+  it("chunks long files before embedding, rather than embedding the full raw content in one call", async () => {
+    const embed = vi.fn(fakeEmbed);
+    const longContent = "a".repeat(1000); // over chunk.ts's 500-char default
+    const files = [{ path: "long.md", content: longContent }];
+
+    await findMergeCandidates(files, embed, undefined, 0.99);
+
+    expect(embed.mock.calls.length).toBeGreaterThan(1); // multiple chunks, not one call with the whole file
+    for (const [text] of embed.mock.calls) {
+      expect((text as string).length).toBeLessThan(longContent.length);
+    }
   });
 });
 
