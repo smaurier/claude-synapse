@@ -12,6 +12,74 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/syncBrainCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 60,
+            "statusMessage": "Synapse : synchronisation de la mémoire…"
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/syncBrainCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 60,
+            "statusMessage": "Synapse : synchronisation de la mémoire…"
+          }
+        ]
+      },
+      {
+        "matcher": "logout",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/syncBrainCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 60,
+            "statusMessage": "Synapse : synchronisation de la mémoire…"
+          }
+        ]
+      },
+      {
+        "matcher": "prompt_input_exit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/syncBrainCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 60,
+            "statusMessage": "Synapse : synchronisation de la mémoire…"
+          }
+        ]
+      },
+      {
+        "matcher": "bypass_permissions_disabled",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/syncBrainCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 60,
+            "statusMessage": "Synapse : synchronisation de la mémoire…"
+          }
+        ]
+      },
+      {
+        "matcher": "other",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/syncBrainCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 60,
+            "statusMessage": "Synapse : synchronisation de la mémoire…"
+          }
+        ]
+      }
     ]
   }
 }

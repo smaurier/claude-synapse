@@ -23,6 +23,7 @@
 import { writeLocalConfig } from "./config.js";
 import { readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG, type SharedConfig } from "./config.js";
 import { acquireLock, releaseLock } from "../lock/lock.js";
+import { ensureHubGitignore } from "./hubGitignore.js";
 
 export interface BootstrapOptions {
   hubUrl: string;
@@ -67,6 +68,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   try {
     sharedConfig = readSharedConfig(opts.hubClonePath);
     writeSharedConfig(opts.hubClonePath, sharedConfig);
+    ensureHubGitignore(opts.hubClonePath);
   } finally {
     releaseLock(opts.hubClonePath, opts.machineId);
   }

@@ -19,6 +19,13 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/** Thin, reusable git runner — exported for other modules (syncBrain.ts)
+ *  that need more git subcommands than clone/pull. Returns stdout. */
+export async function runGit(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd });
+  return stdout;
+}
+
 export async function cloneOrPullHub(hubUrl: string, hubClonePath: string): Promise<void> {
   const alreadyCloned = existsSync(join(hubClonePath, ".git"));
 
