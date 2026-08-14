@@ -11,7 +11,8 @@ let store: VectorStore;
 
 // Deterministic fake: turns a string into a fixed-length "embedding" from char
 // codes, so tests can assert on ranking without a real ML model. Real local
-// embedding model wiring is a separate, explicitly tracked follow-up.
+// embedding model wiring is exercised separately (embeddingProvider.ts +
+// its own integration test) against the actual model.
 function fakeEmbed(text: string): number[] {
   const v = [0, 0, 0];
   for (const ch of text) v[ch.charCodeAt(0) % 3]! += 1;
@@ -30,47 +31,60 @@ afterEach(() => {
 });
 
 describe("rebuildIfStale", () => {
-  it("builds the index on first run (empty store, no fingerprint yet)", () => {
+  it("builds the index on first run (empty store, no fingerprint yet)", async () => {
     const embed = vi.fn(fakeEmbed);
     const corpus = [{ path: "a.md", content: "aaa" }];
 
-    rebuildIfStale(store, corpus, embed);
+    await rebuildIfStale(store, corpus, embed);
 
     expect(embed).toHaveBeenCalledTimes(1);
     expect(store.getFingerprint()).not.toBeNull();
   });
 
-  it("skips rebuilding when the corpus hasn't changed since last time", () => {
+  it("skips rebuilding when the corpus hasn't changed since last time", async () => {
     const embed = vi.fn(fakeEmbed);
     const corpus = [{ path: "a.md", content: "aaa" }];
 
-    rebuildIfStale(store, corpus, embed);
+    await rebuildIfStale(store, corpus, embed);
     embed.mockClear();
-    rebuildIfStale(store, corpus, embed);
+    await rebuildIfStale(store, corpus, embed);
 
     expect(embed).not.toHaveBeenCalled();
   });
 
-  it("rebuilds when a file's content changed since last time", () => {
+  it("rebuilds when a file's content changed since last time", async () => {
     const embed = vi.fn(fakeEmbed);
-    rebuildIfStale(store, [{ path: "a.md", content: "aaa" }], embed);
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }], embed);
     embed.mockClear();
-    rebuildIfStale(store, [{ path: "a.md", content: "changed" }], embed);
+    await rebuildIfStale(store, [{ path: "a.md", content: "changed" }], embed);
     expect(embed).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("brainSearch", () => {
-  it("triggers a rebuild lazily on first search, then answers the query", () => {
+  it("triggers a rebuild lazily on first search, then answers the query", async () => {
     const embed = vi.fn(fakeEmbed);
     const corpus = [
       { path: "a.md", content: "aaa" },
       { path: "b.md", content: "bbb" },
     ];
 
-    const results = brainSearch(store, corpus, embed, "aaa", 1);
+    const results = await brainSearch(store, corpus, embed, "aaa", 1);
 
     expect(embed).toHaveBeenCalled(); // both corpus files + the query
     expect(results[0]?.path).toBe("a.md");
+  });
+
+  it("collapses multiple chunk hits from the same long file into a single result", async () => {
+    const embed = vi.fn(fakeEmbed);
+    const corpus = [
+      { path: "big.md", content: "aaa".repeat(1000) }, // long enough to be chunked
+      { path: "small.md", content: "bbb" },
+    ];
+
+    const results = await brainSearch(store, corpus, embed, "aaa", 10);
+
+    const bigHits = results.filter((r) => r.path === "big.md");
+    expect(bigHits).toHaveLength(1); // never "big.md#0", "big.md#1"... in the results
   });
 });
