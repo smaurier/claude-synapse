@@ -4,7 +4,5 @@
   "description": "Don't sync memory across machines — link it. A single memory hub referenced by junction/symlink from every machine and every project, never copied.",
   "author": "smaurier",
   "license": "MIT",
-  "homepage": "https://github.com/smaurier/claude-synapse",
-  "commands": [],
-  "hooks": {}
+  "homepage": "https://github.com/smaurier/claude-synapse"
 }

@@ -11,6 +11,8 @@
  * print an alarming error for a perfectly normal pre-setup condition.
  */
 
+import { existsSync } from "node:fs";
+import { defaultLocalConfigPath } from "../config/config.js";
 import { runRefreshIndex } from "./refreshIndex.js";
 
 async function main(): Promise<void> {
@@ -22,13 +24,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Checked explicitly rather than pattern-matching readLocalConfig's error
+  // message: a string match would also silently swallow a genuine path
+  // resolution bug that happens to produce a similar-looking error, hiding
+  // exactly the kind of failure this hook should surface.
+  if (!existsSync(defaultLocalConfigPath(pluginDataDir))) {
+    return; // not initialized yet — normal, nothing to refresh
+  }
+
   try {
     await runRefreshIndex(pluginDataDir);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("synapse-init")) {
-      return; // not initialized yet — normal, nothing to refresh
-    }
     console.error(`synapse: échec du rafraîchissement de l'index — ${message}`);
     process.exitCode = 1;
   }
