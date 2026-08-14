@@ -6,8 +6,10 @@ allowed-tools: [Bash]
 
 # /brain-search
 
-Recherche sémantique locale dans le hub mémoire de l'utilisateur (modèle d'embedding local,
-rien n'est envoyé à un tiers).
+Recherche hybride locale dans le hub mémoire de l'utilisateur : correspondances exactes
+(mot-clé littéral) + recherche sémantique (modèle d'embedding local, rien n'est envoyé à un
+tiers). Le fallback exact existe parce qu'un sigle ou terme court isolé (ex: un acronyme) passe
+souvent mal en recherche purement sémantique — mesuré en conditions réelles le 14/08.
 
 1. Exécuter :
    ```bash

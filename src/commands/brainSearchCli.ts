@@ -26,7 +26,8 @@ async function main(): Promise<void> {
       return;
     }
     for (const r of results) {
-      console.log(`${r.score.toFixed(3)}  ${r.path}`);
+      const label = r.matchType === "exact" ? "correspondance exacte" : r.score.toFixed(3);
+      console.log(`${label}  ${r.path}`);
     }
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
