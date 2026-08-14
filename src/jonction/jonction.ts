@@ -163,6 +163,53 @@ export function verifyWriteThrough(linkPath: string, hubPath: string): boolean {
   }
 }
 
+export type EnsureLinkAction = "already-ok" | "created" | "recreated" | "recreated-after-backup";
+
+export interface EnsureLinkResult {
+  action: EnsureLinkAction;
+  backupPath?: string;
+}
+
+/**
+ * Idempotent, interactive-mode link reconciliation (problème 1, design
+ * decided 13/08, implemented 14/08 while wiring /synapse-init — the
+ * orchestration of inspectLink/createLink/removeLink/backupExisting into
+ * "make it correct" existed only as individual primitives until now).
+ * Safe to call every time /synapse-init runs, not just the first: already
+ * correct -> no-op. Auto-fixes wrong-target/broken links and backs up real
+ * pre-existing content automatically, visibly (per design: "renommage
+ * horodaté automatique, visible" — no prompt, since nothing is lost).
+ *
+ * This is the INTERACTIVE-mode behavior specifically. The hook/automatic-
+ * mode counterpart is deliberately different (silent-if-ok, abort + alert
+ * on any problem, never auto-fixes) and is a separate, not-yet-built piece
+ * — conflating the two here would blur a distinction the design draws on
+ * purpose.
+ */
+export function ensureHubLink(hubClonePath: string, linkPath: string): EnsureLinkResult {
+  const state = inspectLink(linkPath, hubClonePath);
+
+  if (state === "ok") {
+    return { action: "already-ok" };
+  }
+
+  if (state === "wrong-target" || state === "broken") {
+    removeLink(linkPath);
+    createLink(hubClonePath, linkPath);
+    return { action: "recreated" };
+  }
+
+  // state === "missing": either nothing is there, or real (non-link) content is.
+  if (existsSync(linkPath)) {
+    const backupPath = backupExisting(linkPath);
+    createLink(hubClonePath, linkPath);
+    return { action: "recreated-after-backup", backupPath };
+  }
+
+  createLink(hubClonePath, linkPath);
+  return { action: "created" };
+}
+
 // Re-exported for callers that need to prepare a target directory (e.g. the hub)
 // before the first link is ever created — not part of the link-safety-critical path.
 export function ensureDirectory(path: string): void {

@@ -51,7 +51,7 @@ describe("cloneOrPullHub", () => {
 
     expect(existsSync(join(hubClonePath, ".git"))).toBe(true);
     expect(readFileSync(join(hubClonePath, "a.md"), "utf8")).toBe("premier commit");
-  });
+  }, 15_000); // real git subprocess under parallel test load — default 5s timeout is tight
 
   it("pulls new commits when the destination is already a clone", async () => {
     const hubClonePath = join(root, "hub");
@@ -66,11 +66,11 @@ describe("cloneOrPullHub", () => {
     await cloneOrPullHub(bareRepoPath, hubClonePath);
 
     expect(readFileSync(join(hubClonePath, "b.md"), "utf8")).toBe("deuxieme commit");
-  });
+  }, 15_000);
 
   it("throws a diagnostic error rather than a raw git failure when the URL is invalid", async () => {
     const hubClonePath = join(root, "hub-invalide");
 
     await expect(cloneOrPullHub(join(root, "n-existe-pas.git"), hubClonePath)).rejects.toThrow(/synapse:/);
-  });
+  }, 15_000);
 });

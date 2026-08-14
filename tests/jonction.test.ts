@@ -8,6 +8,7 @@ import {
   removeLink,
   backupExisting,
   verifyWriteThrough,
+  ensureHubLink,
 } from "../src/jonction/jonction.js";
 
 let root: string;
@@ -136,5 +137,55 @@ describe("verifyWriteThrough", () => {
     createLink(hub, linkPath);
     verifyWriteThrough(linkPath, hub);
     expect(readdirSync(hub).length).toBe(0);
+  });
+});
+
+describe("ensureHubLink — idempotent interactive reconciliation", () => {
+  it("is a no-op when the link already points at the right hub (second /synapse-init run)", () => {
+    createLink(hub, linkPath);
+    const result = ensureHubLink(hub, linkPath);
+    expect(result).toEqual({ action: "already-ok" });
+    expect(inspectLink(linkPath, hub)).toBe("ok");
+  });
+
+  it("creates the link when nothing exists yet (first /synapse-init run)", () => {
+    const result = ensureHubLink(hub, linkPath);
+    expect(result).toEqual({ action: "created" });
+    expect(inspectLink(linkPath, hub)).toBe("ok");
+  });
+
+  it("recreates a link pointing at the wrong target, without asking", () => {
+    const otherHub = join(root, "other-hub");
+    mkdirSync(otherHub, { recursive: true });
+    createLink(otherHub, linkPath);
+
+    const result = ensureHubLink(hub, linkPath);
+
+    expect(result).toEqual({ action: "recreated" });
+    expect(inspectLink(linkPath, hub)).toBe("ok");
+  });
+
+  it("recreates a broken (dangling) link", () => {
+    const ghostHub = join(root, "ghost-hub");
+    mkdirSync(ghostHub, { recursive: true });
+    createLink(ghostHub, linkPath);
+    rmSync(ghostHub, { recursive: true, force: true });
+
+    const result = ensureHubLink(hub, linkPath);
+
+    expect(result).toEqual({ action: "recreated" });
+    expect(inspectLink(linkPath, hub)).toBe("ok");
+  });
+
+  it("backs up real pre-existing content automatically, then links — never loses data silently", () => {
+    mkdirSync(linkPath, { recursive: true });
+    writeFileSync(join(linkPath, "local-note.md"), "keep me");
+
+    const result = ensureHubLink(hub, linkPath);
+
+    expect(result.action).toBe("recreated-after-backup");
+    expect(result.backupPath).toBeDefined();
+    expect(existsSync(join(result.backupPath!, "local-note.md"))).toBe(true);
+    expect(inspectLink(linkPath, hub)).toBe("ok");
   });
 });
