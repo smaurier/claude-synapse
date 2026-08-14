@@ -8,6 +8,8 @@ import {
   writeSharedConfig,
   readLocalConfig,
   writeLocalConfig,
+  defaultLocalConfigPath,
+  defaultHubClonePath,
 } from "../src/config/config.js";
 
 let root: string;
@@ -76,5 +78,17 @@ describe("local config (per-machine, outside the hub, never synced)", () => {
     expect(() =>
       writeLocalConfig(localPath, { hubUrl: "", hubClonePath: root, machineId: "x" }),
     ).toThrow(/hubUrl/);
+  });
+});
+
+describe("default paths anchored to the plugin's per-machine data directory", () => {
+  it("places local-config.json directly inside the given data directory", () => {
+    const pluginDataDir = join(root, "plugin-data");
+    expect(defaultLocalConfigPath(pluginDataDir)).toBe(join(pluginDataDir, "local-config.json"));
+  });
+
+  it("places the default hub clone in a hub/ subdirectory of the data directory", () => {
+    const pluginDataDir = join(root, "plugin-data");
+    expect(defaultHubClonePath(pluginDataDir)).toBe(join(pluginDataDir, "hub"));
   });
 });

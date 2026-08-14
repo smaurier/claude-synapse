@@ -78,3 +78,23 @@ export function writeLocalConfig(path: string, config: LocalConfig): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
+
+/**
+ * Default on-disk locations, anchored to the plugin's per-machine data
+ * directory (decided 14/08: ${CLAUDE_PLUGIN_DATA}, ~/.claude/plugins/data/synapse/
+ * — documented, per-machine, survives plugin updates unlike
+ * ${CLAUDE_PLUGIN_ROOT}). These take that directory as a plain parameter
+ * rather than reading process.env.CLAUDE_PLUGIN_DATA themselves: env var
+ * inheritance is confirmed for hook processes but NOT documented for a
+ * Bash process launched from a skill — the real CLI entrypoint resolves it
+ * once (via an explicit CLI argument substituted into the skill's command
+ * text) and passes it down. Nothing in this module reaches for ambient
+ * process state.
+ */
+export function defaultLocalConfigPath(pluginDataDir: string): string {
+  return join(pluginDataDir, "local-config.json");
+}
+
+export function defaultHubClonePath(pluginDataDir: string): string {
+  return join(pluginDataDir, "hub");
+}
