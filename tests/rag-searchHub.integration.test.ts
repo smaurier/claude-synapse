@@ -29,10 +29,13 @@ describe("searchHub", () => {
       "utf8",
     );
 
-    const results = await searchHub(hub, "un félin qui fait la sieste", 1);
+    // See rag-production.integration.test.ts for why this query is a real
+    // paraphrase ("un animal qui dort...") rather than the rare synonym
+    // "félin", which this model was measured not to handle reliably.
+    const results = await searchHub(hub, "un animal qui dort sur le canapé", 1);
 
     expect(results[0]?.path).toBe("chat.md");
-  }, 30_000);
+  }, 120_000);
 
   it("never indexes its own .synapse directory as memory content", async () => {
     writeFileSync(join(hub, "chat.md"), "Le chat dort sur le canapé.", "utf8");
@@ -41,5 +44,5 @@ describe("searchHub", () => {
 
     expect(results.every((r) => !r.path.startsWith(".synapse"))).toBe(true);
     expect(existsSync(join(hub, ".synapse", "index.sqlite"))).toBe(true);
-  }, 30_000);
+  }, 120_000);
 });

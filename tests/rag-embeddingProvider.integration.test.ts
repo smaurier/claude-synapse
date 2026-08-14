@@ -5,7 +5,7 @@ import { chunkFileForEmbedding, embedLocal } from "../src/rag/embeddingProvider.
 // load + WASM inference), kept in its own file for that reason. This is
 // the actual proof the token-aware chunking holds, not an assumption:
 // every produced chunk is re-encoded by the SAME tokenizer that will run
-// at embedding time and checked against the true 256-token limit.
+// at embedding time and checked against the true 128-token limit.
 
 const FRENCH_MARKDOWN_SAMPLE = `
 Décision du 22/07/2026 (suite remarque d'un collègue « tu pourrais le vendre ») : PAS de
@@ -32,20 +32,20 @@ describe("chunkFileForEmbedding (real tokenizer)", () => {
     expect(chunks.length).toBeGreaterThan(1); // confirms the sample actually needed chunking
 
     const { AutoTokenizer } = await import("@huggingface/transformers");
-    const tokenizer = await AutoTokenizer.from_pretrained("Xenova/all-MiniLM-L6-v2");
+    const tokenizer = await AutoTokenizer.from_pretrained("Xenova/paraphrase-multilingual-MiniLM-L12-v2");
 
     for (const chunk of chunks) {
       const tokenCount = tokenizer.encode(chunk.text).length;
-      expect(tokenCount).toBeLessThanOrEqual(256);
+      expect(tokenCount).toBeLessThanOrEqual(128);
     }
-  }, 30_000);
+  }, 120_000);
 });
 
 describe("embedLocal (real model)", () => {
-  it("returns a 384-dimensional normalized vector for MiniLM", async () => {
+  it("returns a 384-dimensional normalized vector for multilingual MiniLM", async () => {
     const vector = await embedLocal("test court");
     expect(vector).toHaveLength(384);
-  }, 30_000);
+  }, 120_000);
 
   it("does not warn for a properly chunked input", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -53,12 +53,12 @@ describe("embedLocal (real model)", () => {
     await embedLocal(chunk!.text);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
-  }, 30_000);
+  }, 120_000);
 
   it("warns when given raw oversized text that bypassed chunking (the safety net actually fires)", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await embedLocal(FRENCH_MARKDOWN_SAMPLE); // unchunked, well over 256 tokens
+    await embedLocal(FRENCH_MARKDOWN_SAMPLE); // unchunked, well over 128 tokens
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("dépasse la limite"));
     warnSpy.mockRestore();
-  }, 30_000);
+  }, 120_000);
 });
