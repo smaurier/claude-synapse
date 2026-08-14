@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, checkWipLimit } from "../src/commands/brainLint.js";
 
 const VALID_REFERENCE = `---
 name: exemple
@@ -165,5 +165,42 @@ describe("findMergeCandidates", () => {
     ];
     const candidates = await findMergeCandidates(files, fakeEmbed, 0);
     expect(candidates[0]!.score).toBeGreaterThanOrEqual(candidates.at(-1)!.score);
+  });
+});
+
+describe("checkWipLimit", () => {
+  function projectFile(path: string, expires: string): { path: string; content: string } {
+    return {
+      path,
+      content: `---\nname: ${path}\ndescription: x\nmetadata:\n  type: project\n  created: 2026-01-01\n  expires: ${expires}\n---\n`,
+    };
+  }
+
+  it("returns nothing when under the limit", () => {
+    const files = [projectFile("a.md", "ongoing"), projectFile("b.md", "ongoing")];
+    expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+  });
+
+  it("flags when over the limit, naming the active projects", () => {
+    const files = Array.from({ length: 6 }, (_, i) => projectFile(`p${i}.md`, "ongoing"));
+    const findings = checkWipLimit(files, new Date("2026-08-14"), 5);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.message).toContain("6 mémoires");
+  });
+
+  it("does not count expired projects toward the limit", () => {
+    const files = [
+      ...Array.from({ length: 5 }, (_, i) => projectFile(`p${i}.md`, "ongoing")),
+      projectFile("vieux.md", "2020-01-01"), // long expired, shouldn't count
+    ];
+    expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+  });
+
+  it("ignores non-project memories entirely", () => {
+    const files = Array.from({ length: 10 }, (_, i) => ({
+      path: `ref${i}.md`,
+      content: "---\nname: x\ndescription: x\nmetadata:\n  type: reference\n---\n",
+    }));
+    expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
   });
 });
