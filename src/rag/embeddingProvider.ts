@@ -1,6 +1,6 @@
 /**
  * Real local embedding, wired 13/08 after the design decision (problème 4)
- * and Sylvain's push-back on trusting a character-count estimate ("il
+ * and the user's push-back on trusting a character-count estimate ("il
  * faudrait avoir une méthode sûre"). Uses transformers.js (WASM, no native
  * binary per OS/arch — same reasoning that led to node:sqlite over
  * sqlite-vec).
@@ -8,7 +8,7 @@
  * Model swapped 14/08 from all-MiniLM-L6-v2 to paraphrase-multilingual-
  * MiniLM-L12-v2: the original choice is English-only by training data
  * (verified against its model card — no French, no multilingual claim
- * anywhere in it), while Sylvain's real corpus is 100% French. Same 384-dim
+ * anywhere in it), while the user's real corpus is 100% French. Same 384-dim
  * output (no downstream schema change), but a real trade-off: max sequence
  * length drops from 256 to 128, so the chunking budget below is smaller and
  * was re-validated from scratch, not just halved by assumption.

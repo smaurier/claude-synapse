@@ -1,7 +1,7 @@
 /**
  * Splits long files into overlapping windows before embedding.
  *
- * Added after Claude reviewed a RAG primer Sylvain pasted in and caught a
+ * Added after Claude reviewed a RAG primer the user pasted in and caught a
  * real gap: all-MiniLM-L6-v2 (the model chosen for problème 4) truncates
  * input at 256 tokens. Memory files regularly exceed that — without
  * chunking, everything past the truncation point of a long file would be

@@ -7,7 +7,7 @@
  * content: .git (repo internals), node_modules (shouldn't exist in a memory
  * hub, but defensive), .synapse (this plugin's own derived index/config —
  * indexing it would mean re-embedding our own housekeeping files instead of
- * Sylvain's actual memory).
+ * the user's actual memory).
  *
  * Deliberately NOT wired to SharedConfig.refreshProjectsExclusions: that
  * field's format is still an open backlog item for a different concern

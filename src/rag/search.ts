@@ -7,7 +7,7 @@
  *
  * The chunking function is injected too (defaulting to the character-based
  * heuristic in chunk.ts) so the real pipeline can swap in
- * tokenChunk.chunkFileByTokens — the exact, tokenizer-backed method Sylvain
+ * tokenChunk.chunkFileByTokens — the exact, tokenizer-backed method the user
  * asked for on 13/08 after a character-ratio estimate ("faut-il envisager
  * autre chose ?") turned out to be unreliable across languages/content.
  */

@@ -7,22 +7,24 @@ import { chunkFileForEmbedding, embedLocal } from "../src/rag/embeddingProvider.
 // every produced chunk is re-encoded by the SAME tokenizer that will run
 // at embedding time and checked against the true 128-token limit.
 
+// Generic, invented content on purpose — exercises the same properties as
+// real memory files (accents, em-dashes, guillemets, code spans, markdown
+// structure) without being an actual excerpt of anyone's real notes.
 const FRENCH_MARKDOWN_SAMPLE = `
-Décision du 22/07/2026 (suite remarque d'un collègue « tu pourrais le vendre ») : PAS de
-produit payant (risque plateforme, niche, zéro douve) — mais une version générique et saine en
-open-source, c'est LE volet qui intéresse Sylvain (la vitrine GitHub et l'article LinkedIn sont
-annexes pour lui). Forme retenue : un plugin Claude Code (marketplace GitHub, comme caveman) —
-hooks + commandes + install, PAS un repo de scripts à copier. Totalement découplé du système
-privé de Sylvain : module indépendant, installable seul. Nom tranché le 01/08/2026 : Synapse
-(repo probable : claude-synapse). La synapse est le lien dans le cerveau — le nom porte la
-thèse « don't sync — link ». Remplace le nom de travail claude-brain, pris par toroleapinc.
+Décision du 12/03/2026 (suite à une remarque d'une collègue « il faudrait vérifier ça ») : PAS
+de solution rapide mais fragile — une architecture générique et documentée est le critère qui
+prime sur la vitesse pure, c'est LE volet qui intéresse l'équipe (la démonstration publique et
+l'article de blog sont annexes). Forme retenue : un module indépendant, installable seul —
+hooks + commandes + install, PAS un dossier de scripts à copier. Totalement découplé du système
+privé existant : module indépendant, installable seul. Nom de code retenu : « Exemple ». Le nom
+porte la thèse « ne jamais dupliquer — toujours référencer ».
 
-**Problème de conception n°2 (config utilisateur) tranché le 13/08.** Piloté par commandes,
-jamais d'édition manuelle de fichier requise (\`/synapse-init\` au premier lancement,
-\`/synapse-config show/set\` ensuite) — pattern repris de claudebase, pas de servo/outfit. Deux
-couches : config partagée dans le repo hub lui-même (versionnée, synchronisée automatiquement),
-config locale hors hub. Séquence de bootstrap : 1) config locale (URL) → 2) clone/pull du hub →
-3) lecture de la config partagée → 4) création de la jonction → 5) vérification post-install.
+**Décision de conception n°2 (config utilisateur) tranchée le 10/03.** Pilotée par commandes,
+jamais d'édition manuelle de fichier requise (\`/outil-init\` au premier lancement,
+\`/outil-config show/set\` ensuite). Deux couches : config partagée dans le dépôt central lui-même
+(versionnée, synchronisée automatiquement), config locale hors dépôt. Séquence de bootstrap :
+1) config locale (URL) → 2) clone/pull du dépôt → 3) lecture de la config partagée →
+4) création de la jonction → 5) vérification post-install.
 `.repeat(3); // long enough to force multiple chunks
 
 describe("chunkFileForEmbedding (real tokenizer)", () => {

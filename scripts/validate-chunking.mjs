@@ -3,14 +3,18 @@
 // original 104-file/762-chunk validation for all-MiniLM-L6-v2 (see
 // embeddingProvider.ts). Tries increasing reserves until zero violations.
 //
-// Usage: node scripts/validate-chunking.mjs [hubDir]
+// Usage: node scripts/validate-chunking.mjs <hubDir>
+// No default path on purpose: this script reads real memory content, so it
+// must never silently point at anyone's actual hub — pass it explicitly.
 import { AutoTokenizer } from "@huggingface/transformers";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const HUB_DIR =
-  process.argv[2] ??
-  "C:\\Users\\lrtechnologies\\Documents\\projects\\fullstack-autotraining\\private\\memory";
+const HUB_DIR = process.argv[2];
+if (!HUB_DIR) {
+  console.error("Usage: node scripts/validate-chunking.mjs <hubDir>");
+  process.exit(1);
+}
 const MODEL_ID = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const MODEL_MAX_TOKENS = 128;
 const SKIP_DIRS = new Set([".git", "node_modules", ".synapse"]);
