@@ -1,6 +1,5 @@
 ---
 description: Recherche sémantique dans le hub mémoire Synapse
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 

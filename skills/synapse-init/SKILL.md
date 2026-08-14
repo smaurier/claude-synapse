@@ -1,6 +1,5 @@
 ---
 description: Initialise Synapse — clone/lie le hub mémoire git de l'utilisateur au projet courant
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 
@@ -8,6 +7,11 @@ allowed-tools: [Bash]
 
 Première configuration de Synapse pour cette machine et ce projet. Sûr à relancer (idempotent) :
 un deuxième appel ne recrée rien qui est déjà correct.
+
+**Peut être proposé de sa propre initiative** (l'utilisateur exprime vouloir commencer à
+utiliser Synapse, sans connaître la commande exacte), mais **confirmation explicite obligatoire
+avant d'exécuter** la commande elle-même — recueillir l'URL et le chemin (étapes 1 et 3)
+constitue déjà une bonne part de cette confirmation, mais ne pas lancer sans un accord clair.
 
 1. Si l'utilisateur n'a pas déjà donné l'URL de son hub git dans ce message, la demander
    explicitement. **Suggérer la forme HTTPS par défaut** (`https://github.com/<user>/<repo>.git`),

@@ -1,6 +1,5 @@
 ---
 description: État rapide de Synapse pour ce projet (lien, taille du corpus, dernier audit)
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 

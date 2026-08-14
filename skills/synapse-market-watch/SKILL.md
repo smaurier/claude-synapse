@@ -1,6 +1,5 @@
 ---
 description: Veille GitHub sur les plugins concurrents — rapport seulement
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 

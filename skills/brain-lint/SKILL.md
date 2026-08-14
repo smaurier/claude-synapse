@@ -1,6 +1,5 @@
 ---
 description: Audite la santé de la hiérarchie mémoire (frontmatter, péremption, candidats fusion/division) — rapport seulement
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 

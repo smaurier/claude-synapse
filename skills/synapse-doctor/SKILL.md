@@ -1,6 +1,5 @@
 ---
 description: Audit périodique complet (lien, index, brain-lint) — rapport, un seul auto-fix sûr (lien cassé)
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 

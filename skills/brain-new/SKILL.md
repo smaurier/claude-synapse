@@ -1,6 +1,5 @@
 ---
 description: Crée un nouveau fichier mémoire avec le frontmatter conventionnel
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 

@@ -1,6 +1,5 @@
 ---
 description: Lie la mémoire de tous les projets Claude Code trouvés sous une racine donnée
-disable-model-invocation: true
 allowed-tools: [Bash]
 ---
 
@@ -8,7 +7,9 @@ allowed-tools: [Bash]
 
 Complète l'auto-liaison du projet courant (déjà faite à chaque `SessionStart`) pour les cas où
 l'utilisateur veut lier plusieurs projets d'un coup — après avoir cloné plusieurs repos existants,
-par exemple. Demander la racine à scanner si elle n'est pas donnée.
+par exemple. Demander la racine à scanner si elle n'est pas donnée. **Confirmation explicite
+obligatoire avant d'exécuter** — ça crée des liens dans potentiellement plusieurs projets à la
+fois, jamais sur la seule initiative de Claude.
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/dist/commands/runRefreshProjectsCli.js" "${CLAUDE_PLUGIN_DATA}" <rootDir>
