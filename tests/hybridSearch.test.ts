@@ -28,4 +28,27 @@ describe("findExactMatches", () => {
     ];
     expect(findExactMatches(corpus, "RGAA").sort()).toEqual(["a.md", "b.md"]);
   });
+
+  // Real false positives found testing against the actual hub (14/08): a
+  // plain substring check matched "LEP" inside "FilePath" and
+  // "compileProgressStore" — neither is about the LEP savings account.
+  it("does not match a query hidden inside an unrelated longer word (PowerShell path)", () => {
+    const corpus = [{ path: "a.md", content: 'Start-Process -FilePath "C:\\tools\\python.exe"' }];
+    expect(findExactMatches(corpus, "lep")).toEqual([]);
+  });
+
+  it("does not match a query hidden inside an unrelated code identifier", () => {
+    const corpus = [{ path: "a.md", content: "compileProgressStore (zustand)" }];
+    expect(findExactMatches(corpus, "lep")).toEqual([]);
+  });
+
+  it("still matches the query as a standalone word surrounded by punctuation/parentheses", () => {
+    const corpus = [{ path: "a.md", content: "Contrainte : LEP (10k€) intouchable, dernier recours." }];
+    expect(findExactMatches(corpus, "LEP")).toEqual(["a.md"]);
+  });
+
+  it("matches at the very start or end of the file content, not just mid-text", () => {
+    expect(findExactMatches([{ path: "a.md", content: "LEP en tête de fichier" }], "LEP")).toEqual(["a.md"]);
+    expect(findExactMatches([{ path: "b.md", content: "en fin de fichier LEP" }], "LEP")).toEqual(["b.md"]);
+  });
 });

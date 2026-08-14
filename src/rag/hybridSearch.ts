@@ -7,23 +7,36 @@
  * general limitation of embedding models with short/context-free queries,
  * not specific to the model chosen here.
  *
- * findExactMatches is deliberately simple: a case-insensitive substring
- * check of the WHOLE trimmed query against each file's raw content. It
- * does NOT tokenize or match individual words — a multi-word natural
- * question ("quelle est la contrainte sur le LEP") won't literally appear
- * in anyone's notes, so it correctly contributes nothing there; semantic
- * search carries that case. This is specifically the backstop for exact
- * terms (acronyms, project names, IDs) users search with the same words
- * their notes already use.
+ * findExactMatches is deliberately simple: a case-insensitive, WORD-
+ * BOUNDARY-aware check of the whole trimmed query against each file's raw
+ * content. It does NOT tokenize or match individual words — a multi-word
+ * natural question ("quelle est la contrainte sur le LEP") won't literally
+ * appear in anyone's notes, so it correctly contributes nothing there;
+ * semantic search carries that case. This is specifically the backstop for
+ * exact terms (acronyms, project names, IDs) users search with the same
+ * words their notes already use.
+ *
+ * Word boundaries matter more than they first look: a first version used a
+ * plain substring check and, tested against the real hub the same day,
+ * matched "LEP" inside "FilePath" (a PowerShell command) and
+ * "compileProgressStore" (a code identifier) — real false positives, not a
+ * hypothetical. `\p{L}\p{N}_` (Unicode-aware) rather than `\w` so accented
+ * French words on either side of a match are still treated as "part of a
+ * word", not silently ASCII-only.
  */
 
 import { loadCorpus } from "./corpus.js";
 import { searchHub } from "./searchHub.js";
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function findExactMatches(corpus: { path: string; content: string }[], query: string): string[] {
-  const needle = query.trim().toLowerCase();
+  const needle = query.trim();
   if (!needle) return [];
-  return corpus.filter((f) => f.content.toLowerCase().includes(needle)).map((f) => f.path);
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(needle)}(?![\\p{L}\\p{N}_])`, "iu");
+  return corpus.filter((f) => pattern.test(f.content)).map((f) => f.path);
 }
 
 export interface HybridResult {
