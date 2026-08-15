@@ -48,7 +48,6 @@ export async function rebuildIfStale(
   const previousHashes = store.getFileHashes();
   const currentPaths = new Set(corpus.map((f) => f.path));
 
-  // Files removed from the corpus since the last build: drop their chunks.
   for (const path of Object.keys(previousHashes)) {
     if (!currentPaths.has(path)) {
       store.deleteChunksForSourcePath(path);
@@ -56,7 +55,6 @@ export async function rebuildIfStale(
     }
   }
 
-  // Files added or changed: re-chunk and re-embed only those.
   for (const file of corpus) {
     const newHash = hashFileContent(file.content);
     if (previousHashes[file.path] === newHash) continue; // unchanged — skip entirely

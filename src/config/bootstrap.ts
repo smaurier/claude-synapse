@@ -41,22 +41,20 @@ export interface BootstrapResult {
 }
 
 export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult> {
-  // 1. Local config first — nothing else is possible without knowing where the hub is.
+  // Nothing else is possible without knowing where the hub is.
   writeLocalConfig(opts.localConfigPath, {
     hubUrl: opts.hubUrl,
     hubClonePath: opts.hubClonePath,
     machineId: opts.machineId,
   });
 
-  // 2. Clone (first machine ever) or pull (joining an existing hub).
   await opts.cloneOrPullHub(opts.hubUrl, opts.hubClonePath);
 
-  // 3. Read + persist shared config — locked, because this is a write to
-  //    hub-shared state another machine could be touching concurrently
-  //    (e.g. two machines bootstrapping onto the same fresh hub at once).
-  //    readSharedConfig() already returns defaults when absent, but we
-  //    persist those defaults now (first machine ever) rather than leaving
-  //    the hub without a config file until the next write.
+  // Locked: a write to hub-shared state another machine could be touching
+  // concurrently (e.g. two machines bootstrapping onto the same fresh hub at
+  // once). readSharedConfig() already returns defaults when absent, but we
+  // persist those defaults now (first machine ever) rather than leaving
+  // the hub without a config file until the next write.
   const lockResult = acquireLock(opts.hubClonePath, opts.machineId, DEFAULT_SHARED_CONFIG.lockTimeoutMinutes);
   if (!lockResult.acquired) {
     throw new Error(
@@ -73,10 +71,9 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     releaseLock(opts.hubClonePath, opts.machineId);
   }
 
-  // 4. Create the link.
   opts.createHubLink(opts.hubClonePath, opts.linkPath);
 
-  // 5. Verify — never report success without proof the link actually works.
+  // Never report success without proof the link actually works.
   const verified = opts.verifyLink(opts.linkPath, opts.hubClonePath);
   if (!verified) {
     throw new Error(
