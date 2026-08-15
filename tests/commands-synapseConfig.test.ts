@@ -61,8 +61,8 @@ describe("setSynapseConfig", () => {
     await expect(setSynapseConfig(pluginDataDir, "lockTimeoutMinutes", "5")).rejects.toThrow(/verrou/);
   });
 
-  // Ajouté 14/08 : Sylvain a demande a pouvoir ajouter des sources de veille
-  // (concurrents/inspirations) sans attendre une nouvelle version du plugin.
+  // Added 14/08: the user wanted to add watch sources (competitors/
+  // inspirations) without waiting for a new plugin version.
   it("parses marketWatchExtraSources as a comma-separated list of owner/repo entries", async () => {
     const updated = await setSynapseConfig(pluginDataDir, "marketWatchExtraSources", "someone/repo, other/thing");
     expect(updated.marketWatchExtraSources).toEqual(["someone/repo", "other/thing"]);
