@@ -32,6 +32,10 @@ describe("scanContentForSecrets", () => {
   });
 
   it("detects a hardcoded generic secret assignment", () => {
+    // Le pattern testé (clé/secret assigné en dur) est générique — il ne dépend
+    // d'aucun préfixe de service réel (sk_live_, etc.), donc pas besoin d'en
+    // imiter un : GitHub push-protection n'a pas d'allowlist "EXEMPLE" pour
+    // Stripe comme pour AWS, mieux vaut ne ressembler à rien de reconnaissable.
     const matches = scanContentForSecrets('const apiKey = "notarealsecretvalue1234567890";');
     expect(matches.some((m) => m.pattern === "clé/secret assigné en dur")).toBe(true);
   });
