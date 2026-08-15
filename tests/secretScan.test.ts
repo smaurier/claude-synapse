@@ -25,6 +25,8 @@ describe("scanContentForSecrets", () => {
   });
 
   it("detects a Slack token", () => {
+    // "EXAMPLE" dans la valeur, même convention que le AKIA... d'AWS
+    // ci-dessus — reconnu comme factice par le secret-scanning de GitHub.
     const matches = scanContentForSecrets("SLACK_TOKEN=xoxb-EXAMPLE-1234567890-abcdefgh");
     expect(matches.some((m) => m.pattern === "token Slack")).toBe(true);
   });
