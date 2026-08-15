@@ -28,6 +28,12 @@ export interface SharedConfig {
    *  projects, where 5 fires on nearly every run. Configurable per hub
    *  rather than guessing a "correct" generic default. */
   wipLimit: number;
+  /** /synapse-market-watch's KNOWN_COMPETITORS is a hardcoded baseline in
+   *  source (editing it means shipping a new plugin version) — this is the
+   *  user-editable complement, "owner/repo" entries added on top of it.
+   *  Shared (not per-machine local config) so every machine's watch stays
+   *  in sync, same reasoning as refreshProjectsExclusions. */
+  marketWatchExtraSources: string[];
 }
 
 export const DEFAULT_SHARED_CONFIG: SharedConfig = {
@@ -38,6 +44,7 @@ export const DEFAULT_SHARED_CONFIG: SharedConfig = {
   auditCadenceDays: 14,
   lastAuditAt: null,
   wipLimit: 5,
+  marketWatchExtraSources: [],
 };
 
 function sharedConfigPath(hubDir: string): string {

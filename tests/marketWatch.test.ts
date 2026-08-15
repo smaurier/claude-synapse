@@ -42,6 +42,22 @@ describe("watchKnownCompetitors", () => {
   });
 });
 
+describe("watchKnownCompetitors — extraSources", () => {
+  it("also tracks user-added sources alongside the hardcoded baseline", async () => {
+    const results = await watchKnownCompetitors(
+      fakeFetch({
+        "toroleapinc/claude-brain": { status: 200, body: { stargazers_count: 78, html_url: "x" } },
+        "someone/new-source": { status: 200, body: { stargazers_count: 3, html_url: "y" } },
+      }),
+      ["someone/new-source"],
+    );
+    expect(results).toEqual([
+      { fullName: "toroleapinc/claude-brain", stars: 78, url: "x" },
+      { fullName: "someone/new-source", stars: 3, url: "y" },
+    ]);
+  });
+});
+
 describe("searchForNewCompetitors", () => {
   it("excludes already-known competitors from search results", async () => {
     const results = await searchForNewCompetitors(
@@ -75,6 +91,21 @@ describe("runMarketWatch", () => {
       }),
     );
     expect(report.knownCompetitors).toHaveLength(1);
+    expect(report.possibleNewEntrants).toEqual([]);
+  });
+
+  it("does not re-flag a user-added extra source as a new entrant", async () => {
+    const report = await runMarketWatch(
+      fakeFetch({
+        "someone/added-earlier": { status: 200, body: { stargazers_count: 9, html_url: "z" } },
+        "search/repositories": {
+          status: 200,
+          body: { items: [{ full_name: "someone/added-earlier", stargazers_count: 9, html_url: "z" }] },
+        },
+      }),
+      ["someone/added-earlier"],
+    );
+    expect(report.knownCompetitors).toEqual([{ fullName: "someone/added-earlier", stars: 9, url: "z" }]);
     expect(report.possibleNewEntrants).toEqual([]);
   });
 });

@@ -2,9 +2,11 @@
  * /synapse-market-watch (périmètre IN) — report only, GitHub API,
  * unauthenticated (same reasoning as hubVisibility.ts: a read-only public
  * check, no token worth the setup friction). Tracks the 6 known direct
- * competitors identified during the design study (13/08) and searches for
- * new ones matching relevant keywords — never acts on what it finds, just
- * reports.
+ * competitors identified during the design study (13/08), plus whatever the
+ * user has added via SharedConfig.marketWatchExtraSources (14/08 — the
+ * hardcoded list below can't grow without a new plugin version otherwise),
+ * and searches for new ones matching relevant keywords — never acts on what
+ * it finds, just reports.
  */
 
 const KNOWN_COMPETITORS = [
@@ -31,8 +33,12 @@ export async function fetchRepoStats(fullName: string, fetchImpl: typeof fetch =
   return { fullName, stars: data.stargazers_count, url: data.html_url };
 }
 
-export async function watchKnownCompetitors(fetchImpl: typeof fetch = fetch): Promise<RepoStats[]> {
-  const results = await Promise.all(KNOWN_COMPETITORS.map((name) => fetchRepoStats(name, fetchImpl)));
+export async function watchKnownCompetitors(
+  fetchImpl: typeof fetch = fetch,
+  extraSources: readonly string[] = [],
+): Promise<RepoStats[]> {
+  const all = [...KNOWN_COMPETITORS, ...extraSources];
+  const results = await Promise.all(all.map((name) => fetchRepoStats(name, fetchImpl)));
   return results.filter((r): r is RepoStats => r !== null).sort((a, b) => b.stars - a.stars);
 }
 
@@ -56,10 +62,22 @@ export interface MarketWatchReport {
   possibleNewEntrants: RepoStats[];
 }
 
-export async function runMarketWatch(fetchImpl: typeof fetch = fetch): Promise<MarketWatchReport> {
+/**
+ * extraSources: user additions from SharedConfig.marketWatchExtraSources
+ * (KNOWN_COMPETITORS above is a hardcoded baseline, shipped with the
+ * plugin — this is how a user adds one they've spotted without waiting
+ * for a new plugin version). Merged into BOTH the tracked list and the
+ * new-entrant search's exclusion list, so a manually-added source is
+ * tracked, not re-flagged as "new" on every run.
+ */
+export async function runMarketWatch(
+  fetchImpl: typeof fetch = fetch,
+  extraSources: readonly string[] = [],
+): Promise<MarketWatchReport> {
+  const allKnown = [...KNOWN_COMPETITORS, ...extraSources];
   const [knownCompetitors, possibleNewEntrants] = await Promise.all([
-    watchKnownCompetitors(fetchImpl),
-    searchForNewCompetitors("claude code memory sync plugin", fetchImpl),
+    watchKnownCompetitors(fetchImpl, extraSources),
+    searchForNewCompetitors("claude code memory sync plugin", fetchImpl, allKnown),
   ]);
   return { knownCompetitors, possibleNewEntrants };
 }

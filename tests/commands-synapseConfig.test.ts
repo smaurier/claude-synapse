@@ -61,6 +61,13 @@ describe("setSynapseConfig", () => {
     await expect(setSynapseConfig(pluginDataDir, "lockTimeoutMinutes", "5")).rejects.toThrow(/verrou/);
   });
 
+  // Ajouté 14/08 : Sylvain a demande a pouvoir ajouter des sources de veille
+  // (concurrents/inspirations) sans attendre une nouvelle version du plugin.
+  it("parses marketWatchExtraSources as a comma-separated list of owner/repo entries", async () => {
+    const updated = await setSynapseConfig(pluginDataDir, "marketWatchExtraSources", "someone/repo, other/thing");
+    expect(updated.marketWatchExtraSources).toEqual(["someone/repo", "other/thing"]);
+  });
+
   it("parses refreshProjectsExclusions as a comma-separated list of exact directory names", async () => {
     const updated = await setSynapseConfig(pluginDataDir, "refreshProjectsExclusions", "archive, node_modules,old-stuff");
     expect(updated.refreshProjectsExclusions).toEqual(["archive", "node_modules", "old-stuff"]);

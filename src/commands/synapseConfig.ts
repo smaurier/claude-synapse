@@ -7,10 +7,10 @@
  * for hand-editing here would just invite a bad write.
  *
  * refreshProjectsExclusions was excluded too until 14/08 ("format non
- * tranché" backlog item) — now that the format is decided (exact top-level
- * directory names under the scanned root, comma-separated on the CLI), it
- * gets its own parsing path here rather than the numeric one the other
- * keys share.
+ * tranché" backlog item) — now that the format is decided (comma-separated
+ * on the CLI), it and marketWatchExtraSources (added same day, same format:
+ * "owner/repo" entries) share a string-list parsing path distinct from the
+ * numeric one the other keys use.
  */
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG, type SharedConfig } from "../config/config.js";
@@ -18,7 +18,8 @@ import { acquireLock, releaseLock } from "../lock/lock.js";
 
 export const NUMERIC_EDITABLE_KEYS = ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit"] as const;
 export type NumericEditableKey = (typeof NUMERIC_EDITABLE_KEYS)[number];
-export const EDITABLE_KEYS = [...NUMERIC_EDITABLE_KEYS, "refreshProjectsExclusions"] as const;
+export const STRING_LIST_EDITABLE_KEYS = ["refreshProjectsExclusions", "marketWatchExtraSources"] as const;
+export const EDITABLE_KEYS = [...NUMERIC_EDITABLE_KEYS, ...STRING_LIST_EDITABLE_KEYS] as const;
 
 export async function showSynapseConfig(pluginDataDir: string): Promise<SharedConfig> {
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
@@ -26,7 +27,7 @@ export async function showSynapseConfig(pluginDataDir: string): Promise<SharedCo
 }
 
 function parseValue(key: string, rawValue: string): number | string[] {
-  if (key === "refreshProjectsExclusions") {
+  if ((STRING_LIST_EDITABLE_KEYS as readonly string[]).includes(key)) {
     return rawValue
       .split(",")
       .map((s) => s.trim())
