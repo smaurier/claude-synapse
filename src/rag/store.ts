@@ -85,9 +85,15 @@ export class VectorStore {
       .slice(0, topK);
   }
 
+  /** Wipes vectors, file hashes, AND the stored fingerprint — found 14/08
+   *  (code review) missing the fingerprint reset: without it, a caller that
+   *  clears the store and then calls rebuildIfStale() on an unchanged
+   *  corpus would see the OLD fingerprint still match, skip rebuilding
+   *  entirely, and be left with a silently empty index. */
   clear(): void {
     this.db.exec("DELETE FROM vectors");
     this.db.exec("DELETE FROM file_hashes");
+    this.db.exec("DELETE FROM meta");
   }
 
   /** Removes every chunk belonging to one source file — both the bare

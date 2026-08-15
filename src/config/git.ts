@@ -37,9 +37,15 @@ export async function cloneOrPullHub(hubUrl: string, hubClonePath: string): Prom
     }
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err);
-    const action = alreadyCloned ? `git pull --ff-only" dans "${hubClonePath}` : `git clone "${hubUrl}" "${hubClonePath}`;
+    // Message complet assemblé ici, une seule fois — trouvé le 14/08 (revue
+    // de code) : l'ancienne version construisait un fragment "action" avec
+    // des guillemets délibérément déséquilibrés, qui ne se lisait
+    // correctement qu'une fois recollé dans le message englobant.
+    const actionLabel = alreadyCloned
+      ? `"git pull --ff-only" dans "${hubClonePath}"`
+      : `"git clone" de "${hubUrl}" dans "${hubClonePath}"`;
     throw new Error(
-      `synapse: échec de "${action}".\nDiagnostic : ${cause}\n` +
+      `synapse: échec de ${actionLabel}.\nDiagnostic : ${cause}\n` +
         (alreadyCloned
           ? `Cause probable : le hub local a divergé du distant (commits locaux non poussés, ou ` +
             `historique réécrit côté distant) — --ff-only refuse volontairement toute fusion automatique. ` +

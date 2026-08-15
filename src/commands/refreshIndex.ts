@@ -21,9 +21,8 @@
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
 import { refreshHubIndex } from "../rag/searchHub.js";
-import { ensureCurrentProjectLinked } from "./refreshProjects.js";
+import { ensureCurrentProjectLinked, projectMemoryLinkPath } from "./refreshProjects.js";
 import { runSynapseDoctor, type SynapseDoctorReport } from "./synapseDoctor.js";
-import { join } from "node:path";
 
 export interface RefreshIndexResult {
   auditTriggered: boolean;
@@ -51,7 +50,6 @@ export async function runRefreshIndex(pluginDataDir: string, projectDir?: string
     return { auditTriggered: false };
   }
 
-  const linkPath = join(projectDir, ".claude", "memory");
-  const auditReport = await runSynapseDoctor(pluginDataDir, linkPath);
+  const auditReport = await runSynapseDoctor(pluginDataDir, projectMemoryLinkPath(projectDir));
   return { auditTriggered: true, auditReport };
 }

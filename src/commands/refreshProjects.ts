@@ -24,6 +24,13 @@ export interface RefreshProjectsResult {
   link: EnsureLinkResult;
 }
 
+/** The one place that knows the per-project memory link convention
+ *  (<project>/.claude/memory) — was duplicated 3x across this file and
+ *  refreshIndex.ts (found 14/08, code review) before being extracted here. */
+export function projectMemoryLinkPath(projectDir: string): string {
+  return join(projectDir, ".claude", "memory");
+}
+
 export function refreshProjects(rootDir: string, hubClonePath: string, exclusions: string[] = []): RefreshProjectsResult[] {
   const excluded = new Set(exclusions);
   const results: RefreshProjectsResult[] = [];
@@ -34,8 +41,7 @@ export function refreshProjects(rootDir: string, hubClonePath: string, exclusion
     if (!statSync(projectDir).isDirectory()) continue;
     if (!existsSync(join(projectDir, ".claude"))) continue; // not a Claude Code project
 
-    const linkPath = join(projectDir, ".claude", "memory");
-    results.push({ projectDir, link: ensureHubLink(hubClonePath, linkPath) });
+    results.push({ projectDir, link: ensureHubLink(hubClonePath, projectMemoryLinkPath(projectDir)) });
   }
 
   return results;
@@ -46,5 +52,5 @@ export function refreshProjects(rootDir: string, hubClonePath: string, exclusion
  *  whole root — "zero action utilisateur" per the design, cheap enough to
  *  run every session start. */
 export function ensureCurrentProjectLinked(projectDir: string, hubClonePath: string): EnsureLinkResult {
-  return ensureHubLink(hubClonePath, join(projectDir, ".claude", "memory"));
+  return ensureHubLink(hubClonePath, projectMemoryLinkPath(projectDir));
 }

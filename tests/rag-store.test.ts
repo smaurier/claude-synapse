@@ -55,6 +55,15 @@ describe("VectorStore", () => {
     expect(store.search([1, 0, 0], 5)).toEqual([]);
   });
 
+  // Ajoute 14/08 (revue de code) : clear() oubliait de reinitialiser le
+  // fingerprint, ce qui aurait fait sauter silencieusement une reconstruction
+  // d'index sur un corpus inchange apres un clear().
+  it("clear() also resets the fingerprint back to null", () => {
+    store.setFingerprint("abc123");
+    store.clear();
+    expect(store.getFingerprint()).toBeNull();
+  });
+
   it("persists a fingerprint alongside the vectors, defaulting to null", () => {
     expect(store.getFingerprint()).toBeNull();
     store.setFingerprint("abc123");
