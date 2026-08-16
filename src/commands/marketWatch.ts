@@ -16,6 +16,18 @@ const KNOWN_COMPETITORS = [
   "lopadova/claude-mem-sync",
   "hmennen90/claude-device-sync",
   "yang1997434/claude-cowork",
+  // Ajouté 16/08, trouvé par searchForNewCompetitorsMultiQuery puis lu en
+  // profondeur : official Claude Code plugin, markdown comme source de
+  // vérité + index vectoriel (Milvus) reconstructible en cache - la même
+  // architecture générale que ce projet-ci, à un niveau de traction bien
+  // supérieur (2479★, actif). Le plus proche concurrent direct trouvé.
+  "zilliztech/memsearch",
+  // Ajouté 16/08, même lot : /backup pousse la mémoire locale vers un repo
+  // GitHub privé, /recover la restaure sur un nouveau poste - sync-based
+  // (copie push/pull), pas link-based, mais meme categorie exacte (memoire
+  // cross-machine via un repo git prive) que ce projet-ci, plus petit
+  // (132★) mais un point de comparaison direct reel.
+  "HelloRuru/claude-memory-engine",
 ];
 
 export interface RepoStats {
