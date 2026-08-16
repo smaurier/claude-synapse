@@ -17,3 +17,7 @@ risqué qu'un lien qui traîne.
 Les candidats "division" et "journal narratif" sont des heuristiques (longueur/structure), pas
 des certitudes — les présenter comme des pistes à vérifier, pas des verdicts. Le premier appel
 peut prendre du temps (chargement du modèle d'embedding pour les candidats fusion).
+
+Au-delà de `mergeCandidatesMaxFiles` (défaut 500, éditable via `/synapse-config`), la détection
+de fusion est sautée avec un avertissement plutôt que lancée — comparaison par paire en O(n²),
+mesurée à plusieurs minutes au-delà de quelques milliers de fichiers.

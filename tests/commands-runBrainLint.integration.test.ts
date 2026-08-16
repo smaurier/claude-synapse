@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBrainLint } from "../src/commands/runBrainLint.js";
-import { writeLocalConfig } from "../src/config/config.js";
+import { writeLocalConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
 
 // Real model — slow, own file, same rationale as the other
 // *.integration.test.ts files.
@@ -66,5 +66,27 @@ describe("runBrainLint", () => {
     await runBrainLint(pluginDataDir);
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("dépasse la limite"));
     warnSpy.mockRestore();
+  }, 120_000);
+
+  // Ajouté 16/08 (scripts/scale-test.mjs) : findMergeCandidates est O(n²),
+  // mesuré 117s a 2000 fichiers synthétiques — au-dela du seuil configuré,
+  // le sauter et le signaler plutot que de risquer un hang/timeout de hook.
+  it("skips merge-candidate detection above the configured file-count threshold, with a warning", async () => {
+    writeFileSync(
+      join(hubDir, "a.md"),
+      "---\nname: a\ndescription: le chat dort sur le canapé\nmetadata:\n  type: reference\n---\nLe chat dort sur le canapé toute la journée.",
+      "utf8",
+    );
+    writeFileSync(
+      join(hubDir, "b.md"),
+      "---\nname: b\ndescription: le chat dort sur le canapé aussi\nmetadata:\n  type: reference\n---\nLe chat dort sur le canapé toute la journée.",
+      "utf8",
+    );
+    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, mergeCandidatesMaxFiles: 1 });
+
+    const report = await runBrainLint(pluginDataDir);
+
+    expect(report.mergeCandidates).toEqual([]);
+    expect(report.findings.some((f) => f.path === "(corpus)" && /fusion/.test(f.message))).toBe(true);
   }, 120_000);
 });

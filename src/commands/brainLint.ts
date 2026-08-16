@@ -184,6 +184,13 @@ export async function findMergeCandidates(
   chunkFn: (path: string, content: string) => Chunk[] | Promise<Chunk[]> = chunkFile,
   threshold = 0.85,
 ): Promise<MergeCandidate[]> {
+  // NB: this function has no size guard of its own — O(n²) pairwise chunk
+  // comparison, measured 16/08 at 117s for 2000 files (scripts/scale-
+  // test.mjs). Real callers (runBrainLint.ts, synapseDoctor.ts) go through
+  // findMergeCandidatesGuarded() below instead, which skips the comparison
+  // above SharedConfig.mergeCandidatesMaxFiles. This function stays a pure
+  // algorithm — the size policy belongs at the application layer, same
+  // reasoning as checkWipLimit being a separate concern from lintFile.
   const fileEmbeddings = await Promise.all(
     files.map(async (f) => {
       const chunks = await chunkFn(f.path, f.content);
@@ -208,4 +215,35 @@ export async function findMergeCandidates(
   }
 
   return candidates.sort((a, b) => b.score - a.score);
+}
+
+/**
+ * The size-guarded entrypoint real callers use instead of findMergeCandidates
+ * directly. Above maxFiles, skips the O(n²) comparison entirely and reports
+ * why via a corpus-wide finding — never silently returns an empty list that
+ * would read as "no duplicates found" when the real answer is "not checked".
+ */
+export async function findMergeCandidatesGuarded(
+  files: { path: string; content: string }[],
+  embed: (text: string) => number[] | Promise<number[]>,
+  chunkFn: (path: string, content: string) => Chunk[] | Promise<Chunk[]>,
+  maxFiles: number,
+): Promise<{ mergeCandidates: MergeCandidate[]; findings: LintFinding[] }> {
+  if (files.length > maxFiles) {
+    return {
+      mergeCandidates: [],
+      findings: [
+        {
+          path: "(corpus)",
+          severity: "warning",
+          message:
+            `détection de fusion sautée : ${files.length} fichiers dépasse le seuil configuré ` +
+            `(${maxFiles}) — comparaison par paire en O(n²), mesurée à plusieurs minutes au-delà de ` +
+            `quelques milliers de fichiers, risquerait de dépasser le budget du hook. Ajuster ` +
+            `mergeCandidatesMaxFiles via /synapse-config si le temps d'attente est acceptable.`,
+        },
+      ],
+    };
+  }
+  return { mergeCandidates: await findMergeCandidates(files, embed, chunkFn), findings: [] };
 }

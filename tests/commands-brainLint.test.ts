@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, checkWipLimit } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit } from "../src/commands/brainLint.js";
+import { chunkFile } from "../src/rag/chunk.js";
 
 const VALID_REFERENCE = `---
 name: exemple
@@ -183,6 +184,47 @@ describe("findMergeCandidates", () => {
     for (const [text] of embed.mock.calls) {
       expect((text as string).length).toBeLessThan(longContent.length);
     }
+  });
+});
+
+// Ajouté 16/08 (scripts/scale-test.mjs) : O(n²) mesuré a 117s pour 2000
+// fichiers synthétiques — au-dela du seuil configuré, skip + avertissement
+// plutot qu'un calcul potentiellement de plusieurs minutes.
+describe("findMergeCandidatesGuarded", () => {
+  function fakeEmbed(text: string): number[] {
+    const dims = 26;
+    const vec = new Array(dims).fill(0);
+    let hash = 0;
+    for (const ch of text) hash = (hash * 31 + ch.charCodeAt(0)) % dims;
+    vec[hash] = 1;
+    return vec;
+  }
+
+  it("runs the real comparison when the corpus is at or under the threshold", async () => {
+    const files = [
+      { path: "a.md", content: "contenu presque identique" },
+      { path: "b.md", content: "contenu presque identique" },
+    ];
+
+    const result = await findMergeCandidatesGuarded(files, fakeEmbed, chunkFile, 2);
+
+    expect(result.findings).toEqual([]);
+    expect(result.mergeCandidates).toHaveLength(1);
+  });
+
+  it("skips the comparison and reports why when the corpus exceeds the threshold", async () => {
+    const files = [
+      { path: "a.md", content: "contenu presque identique" },
+      { path: "b.md", content: "contenu presque identique" },
+      { path: "c.md", content: "un troisieme fichier" },
+    ];
+
+    const result = await findMergeCandidatesGuarded(files, fakeEmbed, chunkFile, 2);
+
+    expect(result.mergeCandidates).toEqual([]);
+    expect(result.findings).toEqual([
+      expect.objectContaining({ path: "(corpus)", severity: "warning" }),
+    ]);
   });
 });
 

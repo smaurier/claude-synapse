@@ -80,6 +80,29 @@ own initiative.
 local config on this machine. It never touches the hub clone itself, and never asks whether to —
 that's a real git repository the user may still want, not disposable plugin state.
 
+## Tested at scale (16/08)
+
+"A memory corpus is small enough that a specialized vector index buys nothing" was a design
+assumption from day one, never actually measured beyond a few hundred real files — flagged
+internally as something to validate before a public release, then published without being
+checked. Measured afterwards (`scripts/scale-test.mjs`, synthetic corpus, a fast fake embed to
+isolate algorithmic cost from real-model latency):
+
+| Files | Index build | Search (linear cosine scan) | Merge-candidate detection (O(n²)) |
+|---|---|---|---|
+| 100 | 1.8s | 14ms | 0.3s |
+| 500 | 8.9s | 63ms | 7.0s |
+| 1,000 | 18.0s | 126ms | 27.3s |
+| 2,000 | 37.6s | 207ms | 117.2s |
+
+Search itself holds up fine — the linear scan stays well under a second even at thousands of
+files, so the original assumption is correct for that piece. Merge-candidate detection is a
+different story: it's a genuine O(n²) pairwise chunk comparison, and at 2,000 files alone it
+already consumes most of the 120-second budget the automatic periodic audit runs inside. Fixed
+the same day, not just documented: above a configurable file-count threshold
+(`SharedConfig.mergeCandidatesMaxFiles`, default 500), the comparison is skipped entirely and
+the report says why, rather than risking a hook timeout.
+
 ## Known limitations
 
 - **`SessionEnd` sync is best-effort, not guaranteed.** The hook Claude Code calls at session end
@@ -96,6 +119,31 @@ that's a real git repository the user may still want, not disposable plugin stat
 - **Mixing embedding models in one hub is not supported, on purpose.** Cosine similarity only
   means something between vectors from the same model. One model is pinned per hub; changing it
   means re-embedding the whole corpus, never mixing two spaces in one index.
+- **Assumes a note-taking convention it doesn't enforce.** The frontmatter/type/dating
+  conventions used throughout this project are one way of organizing a memory hub, not the only
+  one — a corpus with no frontmatter at all, or a very different structure (Obsidian-style,
+  freeform), would work for search but get little value from `/brain-lint`'s frontmatter checks.
+  No solution attempted; noted as an open question, not something quietly assumed universal.
+- **A sentence-embedding model is a mediocre fit for non-prose content.** Code blocks, tables,
+  and structured data embed and search noticeably worse than prose — the model wasn't built for
+  them, and nothing here compensates for that.
+- **Prompt injection via memory content itself is possible and unmitigated.** If a memory file
+  ever contains adversarial text (pasted from a compromised external source, say) and
+  `/brain-search` surfaces it into context, that text could attempt to influence the assistant
+  reading it. Not specific to Synapse — a generic risk for any RAG system feeding an LLM — but
+  worth naming rather than leaving implicit. No mitigation built for this yet.
+
+## Security notes
+
+The secret scanner (pattern-based, see above) and the hub-visibility check (`/synapse-init`
+refuses to link a public GitHub repo) are the two active safeguards. A pass looking specifically
+for injection surfaces found nothing to fix: git and SQLite calls use parameterized/argument-
+array APIs throughout (no shell string concatenation, no `child_process.exec`, no `eval`), and
+the one place a filename is derived from user input (`/brain-new`'s slug) strips everything
+outside `a-z0-9-` before it touches the filesystem. What's explicitly out of scope: credential
+management (relies on whatever git/GitHub auth is already configured on the machine), at-rest
+encryption of the local index or config (the hub itself is already private; the machine's own
+security is a different boundary), and the prompt-injection vector noted just above.
 
 ## Comparison with sync-based approaches
 
