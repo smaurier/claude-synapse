@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/smaurier/claude-synapse/actions/workflows/ci.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+![Node >= 22.5](https://img.shields.io/badge/node-%3E%3D22.5-brightgreen)
 
 **Don't sync memory across machines — link it.**
 
@@ -83,7 +83,8 @@ claude --plugin-dir /path/to/claude-synapse
 
 Then run `/synapse-init` and give it the URL of a **private** git repo to use as your hub
 (Synapse refuses to link a public one on GitHub — memory doesn't belong in a public repo).
-Requires Node >= 20.
+Requires Node >= 22.5 (the local search index uses `node:sqlite`, a builtin only available from
+that version on).
 
 ## Status
 
