@@ -170,13 +170,18 @@ point of failure for writes when it isn't reachable.
 for the current list, since that's exactly the kind of thing that goes stale in a written
 document and stays current in a command that actually queries GitHub.
 
-**A limitation in the watch mechanism itself, found 16/08**: it searches ONE fixed keyword
-string ("claude code memory sync plugin"), sorted by stars alone. Proven on Synapse's own repo
-before its description was fixed: it didn't match that query at all despite being exactly the
-kind of project it describes — different wording, same category, invisible to a single fixed
-query. A genuinely thorough "find the best of the market" pass needs more than this: multiple
-query phrasings, a topic-based search (`topic:claude-code`) as a second axis independent of
-wording, forks excluded, and activity/recency considered alongside star count (stars-only
-sorting surfaces popular-but-abandoned projects and buries active-but-new ones). Not built —
-`/synapse-market-watch` stays as a cheap, fast first pass; a deeper one-off review (like the
-16/08 competitive read of 6 projects) is still worth doing by hand periodically.
+**A limitation found and fixed the same day (16/08)**: the watch used to search ONE fixed
+keyword string ("claude code memory sync plugin"), sorted by stars alone. Proven on Synapse's
+own repo before its description was fixed: it didn't match that query at all despite being
+exactly the kind of project it describes — different wording, same category, invisible to a
+single fixed query. Fixed, not just documented: `searchForNewCompetitorsMultiQuery` now runs
+several phrasings plus a topic-based query (`topic:claude-code-plugin`, matching on a repo's
+actual tags rather than description wording) and merges the results. The impact was immediate
+and large in practice, not just theoretical — the old single query surfaced 1-2 star repos as
+"new entrants"; the multi-query version surfaced several with a thousand-plus stars, invisible
+before. `pushedAt` is now reported per repo too, so staleness can be judged by a human rather
+than silently hidden by a stars-only sort — still no auto-filtering on it, consistent with the
+report-only philosophy everywhere else in this project. Forks: checked, GitHub's default search
+already excludes them, nothing to fix there. Still not exhaustive — a deeper manual review
+(reading actual READMEs, as done 16/08) remains the more reliable method for real judgment
+calls; this stays the cheap, fast first pass.
