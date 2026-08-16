@@ -1,0 +1,14 @@
+{
+  "name": "synapse",
+  "owner": {
+    "name": "smaurier",
+    "url": "https://github.com/smaurier"
+  },
+  "plugins": [
+    {
+      "name": "synapse",
+      "source": "./",
+      "description": "Don't sync memory across machines — link it. A single memory hub referenced by junction/symlink from every machine and every project, never copied."
+    }
+  ]
+}

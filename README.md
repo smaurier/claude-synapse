@@ -40,7 +40,13 @@ a second source of truth.
 
 ## Install
 
-Not yet published to a marketplace — load it in dev mode:
+```
+/plugin marketplace add smaurier/claude-synapse
+/plugin install synapse@synapse
+```
+
+(This repo doubles as its own marketplace — no separate listing to submit to.) Dev mode also
+works, without registering a marketplace:
 
 ```bash
 claude --plugin-dir /path/to/claude-synapse
@@ -55,8 +61,8 @@ Requires Node >= 20.
 Core mechanism built and tested: 209 tests, real-hub validation (not just fixtures) surfaced
 and fixed several real bugs along the way — a lexical fallback for bare-acronym search, word-
 boundary matching to avoid false positives, incremental indexing, chunk-aware merge detection.
-Not yet in a marketplace listing; the multi-project auto-detection (`/synapse-init` currently
-configures one project at a time) is the next open piece.
+Self-hosted marketplace listing added — see Install above. Multi-project auto-detection
+(`/synapse-init` still configures one project at a time by hand) is the next open piece.
 
 ## Learn more
 
