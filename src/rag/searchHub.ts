@@ -14,6 +14,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadCorpus } from "./corpus.js";
 import { synapseSearch, rebuildIndexIfStale } from "./production.js";
+import { ensurePinnedEmbeddingModel } from "./embeddingProvider.js";
 import { VectorStore, type SearchResult } from "./store.js";
 
 function openHubStore(hubClonePath: string): VectorStore {
@@ -23,6 +24,7 @@ function openHubStore(hubClonePath: string): VectorStore {
 }
 
 export async function searchHub(hubClonePath: string, query: string, topK = 10): Promise<SearchResult[]> {
+  ensurePinnedEmbeddingModel(hubClonePath);
   const store = openHubStore(hubClonePath);
   try {
     const corpus = loadCorpus(hubClonePath);
@@ -36,6 +38,7 @@ export async function searchHub(hubClonePath: string, query: string, topK = 10):
  *  running a search — what the SessionStart refresh hook calls. Same store
  *  location and staleness rule as searchHub(), just without a query. */
 export async function refreshHubIndex(hubClonePath: string): Promise<void> {
+  ensurePinnedEmbeddingModel(hubClonePath);
   const store = openHubStore(hubClonePath);
   try {
     const corpus = loadCorpus(hubClonePath);

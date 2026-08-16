@@ -22,7 +22,7 @@
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../config/config.js";
 import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadCorpus } from "../rag/corpus.js";
-import { embedLocal, chunkFileForEmbedding } from "../rag/embeddingProvider.js";
+import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
 import { lintCorpus, findMergeCandidates, checkWipLimit, type LintFinding, type MergeCandidate } from "./brainLint.js";
 import { refreshProjects, type RefreshProjectsResult } from "./refreshProjects.js";
@@ -39,6 +39,7 @@ export interface SynapseDoctorReport {
 
 export async function runSynapseDoctor(pluginDataDir: string, linkPath: string): Promise<SynapseDoctorReport> {
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
+  ensurePinnedEmbeddingModel(local.hubClonePath);
 
   // Problème 1 health-check: a broken link is the one case safe to
   // auto-fix (per design) — wrong-target is left alone, that's a human

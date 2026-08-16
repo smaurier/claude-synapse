@@ -21,8 +21,10 @@
 import { AutoTokenizer, pipeline, type FeatureExtractionPipeline, type PreTrainedTokenizer } from "@huggingface/transformers";
 import { chunkFileByTokens, type Tokenizer } from "./tokenChunk.js";
 import type { Chunk } from "./chunk.js";
+import { readSharedConfig, writeSharedConfig } from "../config/config.js";
 
-const MODEL_ID = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
+export const DEFAULT_MODEL_ID = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
+const MODEL_ID = DEFAULT_MODEL_ID;
 const MODEL_MAX_TOKENS = 128;
 // This tokenizer (XLM-R sentencepiece, cased, no accent-stripping) round-
 // trips much more cleanly than all-MiniLM-L6-v2's uncased WordPiece one: a
@@ -92,4 +94,42 @@ export async function embedLocal(text: string): Promise<number[]> {
   const extractor = await getExtractor();
   const output = await extractor(text, { pooling: "mean", normalize: true });
   return Array.from(output.data as Float32Array);
+}
+
+/**
+ * Resolves and pins SharedConfig.ragEmbeddingModelVersion — the field
+ * existed in the design since problème 4 (13/08) as the mechanism meant to
+ * settle RAG divergence by construction, but nothing ever actually read or
+ * wrote it (found 16/08, code review of the design backlog). "unset" (first
+ * real use on this hub) pins DEFAULT_MODEL_ID and persists it, so every
+ * other machine that later reads this hub sees the same value and never
+ * silently drifts onto a different model — mixing embedding spaces in one
+ * index is meaningless (see cosineSimilarity's own reasoning). Anything
+ * already pinned to something OTHER than DEFAULT_MODEL_ID is refused:
+ * swapping models needs a full corpus re-embed at the new model's own
+ * chunking budget (max_seq_length, special-token reserve — both measured
+ * empirically per model, see chunkFileForEmbedding above), not built yet.
+ * Surfacing the mismatch beats silently embedding at the wrong budget for
+ * whatever model is actually configured.
+ *
+ * No lock, unlike every other shared-config write: this one only ever
+ * converges on the same value regardless of which machine gets there first
+ * (there's exactly one real supported model right now), so a race between
+ * two machines pinning at once is harmless.
+ */
+export function ensurePinnedEmbeddingModel(hubClonePath: string): string {
+  const shared = readSharedConfig(hubClonePath);
+  if (shared.ragEmbeddingModelVersion === "unset") {
+    writeSharedConfig(hubClonePath, { ...shared, ragEmbeddingModelVersion: DEFAULT_MODEL_ID });
+    return DEFAULT_MODEL_ID;
+  }
+  if (shared.ragEmbeddingModelVersion !== DEFAULT_MODEL_ID) {
+    throw new Error(
+      `synapse: modèle d'embedding épinglé ("${shared.ragEmbeddingModelVersion}") différent du seul ` +
+        `modèle actuellement supporté ("${DEFAULT_MODEL_ID}") — changer de modèle demande un ré-embedding ` +
+        `complet du corpus, pas encore automatisé. Revenir à "${DEFAULT_MODEL_ID}" dans la config partagée, ` +
+        `ou construire la migration avant de continuer.`,
+    );
+  }
+  return DEFAULT_MODEL_ID;
 }
