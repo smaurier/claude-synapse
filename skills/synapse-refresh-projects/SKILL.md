@@ -17,3 +17,7 @@ node "${CLAUDE_PLUGIN_ROOT}/dist/commands/runRefreshProjectsCli.js" "${CLAUDE_PL
 
 Les exclusions (dossiers à ignorer sous cette racine) viennent de `/synapse-config` — les noms
 de dossiers à exclure sont des correspondances exactes au premier niveau, pas des motifs.
+
+La racine donnée est mémorisée automatiquement (`SharedConfig.refreshProjectsRoots`) —
+`/synapse-doctor` la rescanne tout seul à chaque audit périodique par la suite, pas besoin de
+relancer cette commande à chaque nouveau projet créé sous cette racine.

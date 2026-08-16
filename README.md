@@ -31,9 +31,9 @@ a second source of truth.
 | `/brain-new` | Scaffold a new memory file with the conventional frontmatter. |
 | `/brain-status` | Quick health snapshot for the current project: link state, corpus size, last audit. |
 | `/brain-lint` | Frontmatter validity, expired entries, merge/split candidates — report only. |
-| `/synapse-doctor` | Broader periodic audit (link, index, lint) in one report. Auto-fixes only a broken link — never a wrong-target one, that's a human call. |
+| `/synapse-doctor` | Broader periodic audit (link, index, lint, remembered project roots) in one report. Auto-fixes only a broken link — never a wrong-target one, that's a human call. |
 | `/synapse-config` | Read or edit the hub's shared config — never by hand-editing a file. |
-| `/synapse-refresh-projects` | Link every Claude Code project found under a given root, in one pass. |
+| `/synapse-refresh-projects` | Link every Claude Code project found under a given root, in one pass — the root is remembered, so `/synapse-doctor` keeps re-scanning it on its own afterwards. |
 | `/synapse-sync` | Manual commit + push, in case the automatic hook didn't run. |
 | `/synapse-market-watch` | Read-only GitHub scan of comparable projects — never acts on what it finds. |
 | `/synapse-uninstall` | Remove the link and local config for this project. The hub itself is never touched. |
@@ -61,8 +61,9 @@ Requires Node >= 20.
 Core mechanism built and tested: 209 tests, real-hub validation (not just fixtures) surfaced
 and fixed several real bugs along the way — a lexical fallback for bare-acronym search, word-
 boundary matching to avoid false positives, incremental indexing, chunk-aware merge detection.
-Self-hosted marketplace listing added — see Install above. Multi-project auto-detection
-(`/synapse-init` still configures one project at a time by hand) is the next open piece.
+Self-hosted marketplace listing added — see Install above. `/synapse-init` still configures one
+project at a time by hand, but a root scanned once via `/synapse-refresh-projects` now stays
+covered automatically on every later periodic audit.
 
 ## Learn more
 

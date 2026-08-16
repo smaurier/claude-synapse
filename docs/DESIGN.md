@@ -67,11 +67,14 @@ shared config records when the last full audit ran; every session start compares
 configurable cadence and triggers the audit inline if it's overdue. No process to keep alive, no
 extra moving part — the audit piggybacks on something that already happens every session.
 
-**6. Multi-project linking — partially built.** Given a root directory, Synapse can walk it and
-link every Claude Code project found underneath (detected by a `.claude/` marker) to the hub in
-one pass. What isn't built yet: automatic detection of *which* projects should be linked without
-being told the root explicitly, and cleanup of a link left behind after its project directory is
-removed — v1 only ever adds links, it never removes one on its own initiative.
+**6. Multi-project linking — two complementary mechanisms, one gap left.** A brand-new project
+(one the user actually opens a Claude Code session in) gets linked automatically at session
+start, zero action required. A project that already existed *before* Synapse was ever set up
+needs one manual scan of its root (`/synapse-refresh-projects <root>`) — but that root is then
+remembered in shared config, and every later periodic audit re-scans it on its own, so the
+manual step only ever happens once per root. What's still missing: cleanup of a link left behind
+after its project directory is removed — v1 only ever adds links, it never removes one on its
+own initiative.
 
 **7. Uninstall is deliberately narrow.** It removes the link for the current project and the
 local config on this machine. It never touches the hub clone itself, and never asks whether to —

@@ -49,4 +49,22 @@ describe("runRefreshProjects", () => {
 
     expect(results.map((r) => r.projectDir)).toEqual([join(projectsRoot, "projet-a")]);
   });
+
+  // Ajoute 16/08 : la racine donnee manuellement doit etre memorisee, pour
+  // que /synapse-doctor puisse la rescanner tout seul aux audits suivants
+  // sans que l'utilisateur la retape a chaque fois.
+  it("persists the given root into SharedConfig.refreshProjectsRoots", async () => {
+    await runRefreshProjects(pluginDataDir, projectsRoot);
+
+    const { readSharedConfig } = await import("../src/config/config.js");
+    expect(readSharedConfig(hubDir).refreshProjectsRoots).toEqual([projectsRoot]);
+  });
+
+  it("does not duplicate a root already remembered from a previous run", async () => {
+    await runRefreshProjects(pluginDataDir, projectsRoot);
+    await runRefreshProjects(pluginDataDir, projectsRoot);
+
+    const { readSharedConfig } = await import("../src/config/config.js");
+    expect(readSharedConfig(hubDir).refreshProjectsRoots).toEqual([projectsRoot]);
+  });
 });

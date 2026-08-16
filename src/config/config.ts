@@ -34,6 +34,14 @@ export interface SharedConfig {
    *  Shared (not per-machine local config) so every machine's watch stays
    *  in sync, same reasoning as refreshProjectsExclusions. */
   marketWatchExtraSources: string[];
+  /** Roots that runRefreshProjects() has been given at least once — persisted
+   *  automatically (not user-edited by hand, though /synapse-config can) so
+   *  a project tree scanned manually once gets re-scanned on every periodic
+   *  audit (synapseDoctor.ts) afterwards, without retyping the root each
+   *  time. Covers projects that existed before Synapse was ever set up —
+   *  ensureCurrentProjectLinked already handles brand-new project sessions
+   *  automatically, this is the complementary case. */
+  refreshProjectsRoots: string[];
 }
 
 export const DEFAULT_SHARED_CONFIG: SharedConfig = {
@@ -45,6 +53,7 @@ export const DEFAULT_SHARED_CONFIG: SharedConfig = {
   lastAuditAt: null,
   wipLimit: 5,
   marketWatchExtraSources: [],
+  refreshProjectsRoots: [],
 };
 
 function sharedConfigPath(hubDir: string): string {

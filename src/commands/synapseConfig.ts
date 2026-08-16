@@ -18,7 +18,7 @@ import { acquireLock, releaseLock } from "../lock/lock.js";
 
 export const NUMERIC_EDITABLE_KEYS = ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit"] as const;
 export type NumericEditableKey = (typeof NUMERIC_EDITABLE_KEYS)[number];
-export const STRING_LIST_EDITABLE_KEYS = ["refreshProjectsExclusions", "marketWatchExtraSources"] as const;
+export const STRING_LIST_EDITABLE_KEYS = ["refreshProjectsExclusions", "marketWatchExtraSources", "refreshProjectsRoots"] as const;
 export const EDITABLE_KEYS = [...NUMERIC_EDITABLE_KEYS, ...STRING_LIST_EDITABLE_KEYS] as const;
 
 export async function showSynapseConfig(pluginDataDir: string): Promise<SharedConfig> {

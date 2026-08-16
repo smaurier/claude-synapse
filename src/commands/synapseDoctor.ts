@@ -1,13 +1,16 @@
 /**
  * /synapse-doctor (périmètre IN) — unifies /brain-status, /brain-lint, and
- * the health-checks for problèmes 1/4/5 into one periodic report.
- * Report-only, except the one auto-fix already decided as safe in the
+ * the health-checks for problèmes 1/4/5/6 into one periodic report.
+ * Report-only, except two auto-actions already decided as safe in the
  * design: a broken link gets recreated (never a wrong-target one — that
- * could silently repoint memory at the wrong hub, worth a human look).
- * Problème 6 (multi-slug) is NOT covered here — its health-check already
- * runs on every SessionStart (ensureCurrentProjectLinked), a different,
- * cheaper mechanism than this periodic audit; folding a full refreshProjects
- * scan in here too would need a root directory this command doesn't take.
+ * could silently repoint memory at the wrong hub, worth a human look), and
+ * every remembered refreshProjectsRoots entry gets re-scanned (16/08 —
+ * previously this needed a root directory the command didn't take; now it
+ * reads whatever /synapse-refresh-projects has remembered, same daemon-less
+ * pattern as the audit-cadence mechanism below). ensureCurrentProjectLinked
+ * (SessionStart) still covers any project the user actually opens a
+ * session in — this covers the complementary case, projects that predate
+ * Synapse being set up at all.
  *
  * Updates SharedConfig.lastAuditAt after running — this IS the daemon-less
  * mechanism from problème 5 (last_audit_at checked at SessionStart,
@@ -22,6 +25,7 @@ import { loadCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding } from "../rag/embeddingProvider.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
 import { lintCorpus, findMergeCandidates, checkWipLimit, type LintFinding, type MergeCandidate } from "./brainLint.js";
+import { refreshProjects, type RefreshProjectsResult } from "./refreshProjects.js";
 
 export interface SynapseDoctorReport {
   hubClonePath: string;
@@ -30,6 +34,7 @@ export interface SynapseDoctorReport {
   fileCount: number;
   findings: LintFinding[];
   mergeCandidates: MergeCandidate[];
+  projectsRelinked: RefreshProjectsResult[];
 }
 
 export async function runSynapseDoctor(pluginDataDir: string, linkPath: string): Promise<SynapseDoctorReport> {
@@ -58,6 +63,13 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
   const findings = [...lintCorpus(corpus), ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit)];
   const mergeCandidates = await findMergeCandidates(corpus, embedLocal, chunkFileForEmbedding);
 
+  // Problème 6 follow-up: re-scan every root /synapse-refresh-projects has
+  // ever been given, so a project discovered manually once stays covered
+  // by every later periodic audit without the root being retyped.
+  const projectsRelinked = sharedForRead.refreshProjectsRoots.flatMap((rootDir) =>
+    refreshProjects(rootDir, local.hubClonePath, sharedForRead.refreshProjectsExclusions),
+  );
+
   // Problème 5: this run IS the audit — record it, locked like any other
   // shared-config write.
   const lockResult = acquireLock(local.hubClonePath, local.machineId, DEFAULT_SHARED_CONFIG.lockTimeoutMinutes);
@@ -80,5 +92,6 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
     fileCount: corpus.length,
     findings,
     mergeCandidates,
+    projectsRelinked,
   };
 }

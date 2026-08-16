@@ -17,3 +17,8 @@ l'utilisateur, jamais écrasé en silence.
 Enregistre la date de cet audit dans la config partagée — c'est ce qui alimente la cadence
 périodique (`/synapse-doctor` déclenché automatiquement quand le délai configuré est dépassé,
 vérifié à chaque `SessionStart`).
+
+Rescanne aussi automatiquement chaque racine mémorisée par `/synapse-refresh-projects`
+(`SharedConfig.refreshProjectsRoots`) et lie tout nouveau projet trouvé dessous — c'est ce qui
+couvre les projets qui existaient déjà avant Synapse, sans qu'on ait à repasser la racine à la
+main à chaque fois.
