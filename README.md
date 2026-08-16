@@ -1,5 +1,9 @@
 # Synapse
 
+![CI](https://github.com/smaurier/claude-synapse/actions/workflows/ci.yml/badge.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+
 **Don't sync memory across machines — link it.**
 
 Most tools that keep Claude Code's memory consistent across machines *sync* it: copy files
@@ -7,6 +11,20 @@ back and forth, merge on conflict, hope nothing diverges. Synapse takes a differ
 there is exactly **one** physical copy of your memory (a git repo you own), and every machine,
 every project, references it through a filesystem link (an NTFS junction on Windows, a symlink
 elsewhere). Nothing to merge, because nothing is ever duplicated in the first place.
+
+```
+                        ┌───────────────────────┐
+                        │   hub — a git repo     │
+                        │   you own, ONE copy    │
+                        └───────────┬───────────┘
+                        junction / symlink, never a copy
+              ┌─────────────────────┼─────────────────────┐
+      ┌───────▼───────┐     ┌───────▼───────┐     ┌───────▼───────┐
+      │ machine A      │     │ machine B      │     │ machine A      │
+      │ project 1      │     │ project 1      │     │ project 2      │
+      │ .claude/memory │     │ .claude/memory │     │ .claude/memory │
+      └───────────────┘     └───────────────┘     └───────────────┘
+```
 
 ## How it works
 
@@ -21,6 +39,17 @@ elsewhere). Nothing to merge, because nothing is ever duplicated in the first pl
 That's the whole mechanism. Everything else (linting the memory, watching for stale links,
 scanning for merge candidates, tracking the competitive landscape) is built on top of it, never
 a second source of truth.
+
+## Why link instead of sync
+
+|  | Sync-based tools | Synapse |
+|---|---|---|
+| Physical copies | One per machine, reconciled | Exactly one, ever |
+| Conflicts | Possible — needs a merge strategy | Structurally impossible — nothing to merge |
+| New machine | A sync/merge step | Just a link, reading the same file the others do |
+| Hub unreachable | Sync fails or partially applies | Nothing to write; nothing to reconcile once it's back |
+
+See [`docs/DESIGN.md`](docs/DESIGN.md) for the full reasoning and trade-offs, not just the pitch.
 
 ## Commands
 
@@ -58,12 +87,14 @@ Requires Node >= 20.
 
 ## Status
 
-Core mechanism built and tested: 209 tests, real-hub validation (not just fixtures) surfaced
+Core mechanism built and tested: **221 tests**, real-hub validation (not just fixtures) surfaced
 and fixed several real bugs along the way — a lexical fallback for bare-acronym search, word-
 boundary matching to avoid false positives, incremental indexing, chunk-aware merge detection.
-Self-hosted marketplace listing added — see Install above. `/synapse-init` still configures one
-project at a time by hand, but a root scanned once via `/synapse-refresh-projects` now stays
-covered automatically on every later periodic audit.
+Scale-tested too, not just assumed: search stays fast into the thousands of files; the one piece
+that didn't (merge-candidate detection, O(n²)) is guarded against a configurable file-count
+ceiling rather than left to hang. Self-hosted marketplace listing added — see Install above.
+`/synapse-init` still configures one project at a time by hand, but a root scanned once via
+`/synapse-refresh-projects` now stays covered automatically on every later periodic audit.
 
 ## Learn more
 
