@@ -10,6 +10,7 @@ import {
   writeLocalConfig,
   defaultLocalConfigPath,
   defaultHubClonePath,
+  recordMachineSeen,
 } from "../src/config/config.js";
 
 let root: string;
@@ -52,6 +53,32 @@ describe("shared config (lives inside the hub, versioned, synced)", () => {
     mkdirSync(hubDir, { recursive: true });
     writeSharedConfig(hubDir, DEFAULT_SHARED_CONFIG);
     expect(existsSync(join(hubDir, ".synapse", "config.json"))).toBe(true);
+  });
+});
+
+// Ajoute 16/08 (revue concurrentielle) : registre des machines connues.
+describe("recordMachineSeen (device registry)", () => {
+  it("records a machine's presence with an ISO timestamp", () => {
+    const hubDir = join(root, "hub");
+    mkdirSync(hubDir, { recursive: true });
+
+    recordMachineSeen(hubDir, "workstation-a", new Date("2026-08-16T12:00:00.000Z"));
+
+    expect(readSharedConfig(hubDir).knownMachines).toEqual({ "workstation-a": "2026-08-16T12:00:00.000Z" });
+  });
+
+  it("updates an existing machine's timestamp without dropping other machines", () => {
+    const hubDir = join(root, "hub");
+    mkdirSync(hubDir, { recursive: true });
+
+    recordMachineSeen(hubDir, "workstation-a", new Date("2026-08-16T12:00:00.000Z"));
+    recordMachineSeen(hubDir, "workstation-b", new Date("2026-08-16T13:00:00.000Z"));
+    recordMachineSeen(hubDir, "workstation-a", new Date("2026-08-16T14:00:00.000Z"));
+
+    expect(readSharedConfig(hubDir).knownMachines).toEqual({
+      "workstation-a": "2026-08-16T14:00:00.000Z",
+      "workstation-b": "2026-08-16T13:00:00.000Z",
+    });
   });
 });
 

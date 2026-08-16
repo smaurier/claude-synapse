@@ -103,6 +103,18 @@ the same day, not just documented: above a configurable file-count threshold
 (`SharedConfig.mergeCandidatesMaxFiles`, default 500), the comparison is skipped entirely and
 the report says why, rather than risking a hook timeout.
 
+## Device registry (16/08)
+
+A competitive review found two higher-starred comparable projects both track which machines are
+actively using a shared memory store — genuinely useful, not just a feature-checklist item: it
+answers "is this hub actually still in use from my old laptop" without having to go check. Added
+the same day: `SharedConfig.knownMachines` maps each machine to when it last started a session
+against this hub, updated on every `SessionStart` and surfaced in `/synapse-doctor`'s report.
+Deliberately unlocked, unlike most shared-config writes — it's a soft presence signal, not
+correctness-critical, and the one failure mode (two machines racing to write it at the exact
+same instant) just leaves one machine's timestamp a session stale, which self-corrects the next
+time that machine starts a session.
+
 ## Known limitations
 
 - **`SessionEnd` sync is best-effort, not guaranteed.** The hook Claude Code calls at session end

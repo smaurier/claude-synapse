@@ -17,9 +17,13 @@
  * (13/08) but nothing ever actually performed the audit or advanced the
  * timestamp until this. Only runs when projectDir is given (need it to
  * derive linkPath for the doctor run).
+ *
+ * Records this machine in the device registry (16/08, SharedConfig.
+ * knownMachines) unconditionally — every SessionStart, not gated on
+ * projectDir, since presence tracking doesn't need a project context.
  */
 
-import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
+import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, recordMachineSeen } from "../config/config.js";
 import { refreshHubIndex } from "../rag/searchHub.js";
 import { ensureCurrentProjectLinked, projectMemoryLinkPath } from "./refreshProjects.js";
 import { runSynapseDoctor, type SynapseDoctorReport } from "./synapseDoctor.js";
@@ -38,6 +42,7 @@ export function isAuditOverdue(lastAuditAt: string | null, cadenceDays: number):
 
 export async function runRefreshIndex(pluginDataDir: string, projectDir?: string): Promise<RefreshIndexResult> {
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
+  recordMachineSeen(localConfig.hubClonePath, localConfig.machineId);
   if (projectDir) {
     ensureCurrentProjectLinked(projectDir, localConfig.hubClonePath);
   }

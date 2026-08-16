@@ -19,7 +19,7 @@
  * the timestamp itself would get updated.
  */
 
-import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../config/config.js";
+import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, recordMachineSeen, DEFAULT_SHARED_CONFIG } from "../config/config.js";
 import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
@@ -35,11 +35,15 @@ export interface SynapseDoctorReport {
   findings: LintFinding[];
   mergeCandidates: MergeCandidate[];
   projectsRelinked: RefreshProjectsResult[];
+  /** machineId -> ISO last-seen timestamp (SharedConfig.knownMachines,
+   *  16/08) — the device registry, updated on every SessionStart. */
+  knownMachines: Record<string, string>;
 }
 
 export async function runSynapseDoctor(pluginDataDir: string, linkPath: string): Promise<SynapseDoctorReport> {
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   ensurePinnedEmbeddingModel(local.hubClonePath);
+  recordMachineSeen(local.hubClonePath, local.machineId);
 
   // Problème 1 health-check: a broken link is the one case safe to
   // auto-fix (per design) — wrong-target is left alone, that's a human
@@ -95,5 +99,6 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
     findings,
     mergeCandidates,
     projectsRelinked,
+    knownMachines: sharedForRead.knownMachines,
   };
 }

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runRefreshIndex } from "../src/commands/refreshIndex.js";
-import { writeLocalConfig } from "../src/config/config.js";
+import { writeLocalConfig, readSharedConfig } from "../src/config/config.js";
 
 let pluginDataDir: string;
 let hubDir: string;
@@ -38,6 +38,21 @@ describe("runRefreshIndex", () => {
 
     expect(existsSync(join(hubDir, ".synapse", "index.sqlite"))).toBe(true);
     expect(result.auditTriggered).toBe(false); // no projectDir given — audit needs it for linkPath
+  }, 120_000);
+
+  // Ajoute 16/08 : registre des machines (SharedConfig.knownMachines),
+  // mis a jour a chaque SessionStart, meme sans projectDir.
+  it("records this machine in the device registry", async () => {
+    writeLocalConfig(join(pluginDataDir, "local-config.json"), {
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      hubClonePath: hubDir,
+      machineId: "workstation-a",
+    });
+    writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
+
+    await runRefreshIndex(pluginDataDir);
+
+    expect(readSharedConfig(hubDir).knownMachines).toHaveProperty("workstation-a");
   }, 120_000);
 
   it("triggers /synapse-doctor automatically when the audit cadence is overdue and a projectDir is given", async () => {

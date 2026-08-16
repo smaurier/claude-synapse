@@ -45,6 +45,15 @@ export interface SharedConfig {
    *  deliberately conservative margin below where the synthetic timing
    *  starts eating the hook budget, not a hard technical ceiling. */
   mergeCandidatesMaxFiles: number;
+  /** machineId -> ISO timestamp of its last SessionStart on this hub. A
+   *  device registry (found 16/08 competitive review: two higher-starred
+   *  comparable projects have one, Synapse didn't) — "which machines are
+   *  actually using this hub" is genuinely useful, not just a marketing
+   *  checkbox. Updated on every SessionStart (recordMachineSeen below),
+   *  unlocked on purpose: a soft presence signal, not correctness-critical
+   *  — the rare lost update from a genuine concurrent-write race just means
+   *  one machine's timestamp is a session behind, self-corrects next time. */
+  knownMachines: Record<string, string>;
   /** Roots that runRefreshProjects() has been given at least once — persisted
    *  automatically (not user-edited by hand, though /synapse-config can) so
    *  a project tree scanned manually once gets re-scanned on every periodic
@@ -65,6 +74,7 @@ export const DEFAULT_SHARED_CONFIG: SharedConfig = {
   wipLimit: 5,
   marketWatchExtraSources: [],
   mergeCandidatesMaxFiles: 500,
+  knownMachines: {},
   refreshProjectsRoots: [],
 };
 
@@ -131,4 +141,17 @@ export function defaultLocalConfigPath(pluginDataDir: string): string {
 
 export function defaultHubClonePath(pluginDataDir: string): string {
   return join(pluginDataDir, "hub");
+}
+
+/**
+ * Records this machine's presence on the hub — the device registry (see
+ * SharedConfig.knownMachines). Called on every SessionStart, unlocked on
+ * purpose: this is a soft "who's using this hub" signal, not something a
+ * lost update under a rare concurrent-write race would meaningfully break —
+ * that machine's timestamp just lags one session behind, self-correcting
+ * the next time it starts a session.
+ */
+export function recordMachineSeen(hubClonePath: string, machineId: string, now: Date = new Date()): void {
+  const shared = readSharedConfig(hubClonePath);
+  writeSharedConfig(hubClonePath, { ...shared, knownMachines: { ...shared.knownMachines, [machineId]: now.toISOString() } });
 }

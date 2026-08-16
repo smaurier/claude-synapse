@@ -60,7 +60,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full reasoning and trade-offs, no
 | `/brain-new` | Scaffold a new memory file with the conventional frontmatter. |
 | `/brain-status` | Quick health snapshot for the current project: link state, corpus size, last audit. |
 | `/brain-lint` | Frontmatter validity, expired entries, merge/split candidates — report only. |
-| `/synapse-doctor` | Broader periodic audit (link, index, lint, remembered project roots) in one report. Auto-fixes only a broken link — never a wrong-target one, that's a human call. |
+| `/synapse-doctor` | Broader periodic audit (link, index, lint, remembered project roots, device registry) in one report. Auto-fixes only a broken link — never a wrong-target one, that's a human call. |
 | `/synapse-config` | Read or edit the hub's shared config — never by hand-editing a file. |
 | `/synapse-refresh-projects` | Link every Claude Code project found under a given root, in one pass — the root is remembered, so `/synapse-doctor` keeps re-scanning it on its own afterwards. |
 | `/synapse-sync` | Manual commit + push, in case the automatic hook didn't run. |

@@ -20,6 +20,12 @@ async function main(): Promise<void> {
     console.log(`hub: ${report.hubClonePath} (${report.fileCount} fichiers)`);
     console.log(`lien: ${report.linkState}${report.linkAutoFixed ? " (recréé automatiquement, était cassé)" : ""}`);
 
+    const machines = Object.entries(report.knownMachines).sort(([, a], [, b]) => b.localeCompare(a));
+    if (machines.length > 0) {
+      console.log(`machines connues (${machines.length}) :`);
+      for (const [machineId, lastSeenAt] of machines) console.log(`  ${machineId} — vu la dernière fois : ${lastSeenAt}`);
+    }
+
     if (report.projectsRelinked.length > 0) {
       console.log(`projets (re)liés depuis les racines mémorisées : ${report.projectsRelinked.length}`);
       for (const p of report.projectsRelinked) console.log(`  ${p.projectDir} — ${p.link.action}`);

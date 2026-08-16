@@ -22,3 +22,7 @@ Rescanne aussi automatiquement chaque racine mémorisée par `/synapse-refresh-p
 (`SharedConfig.refreshProjectsRoots`) et lie tout nouveau projet trouvé dessous — c'est ce qui
 couvre les projets qui existaient déjà avant Synapse, sans qu'on ait à repasser la racine à la
 main à chaque fois.
+
+Rapporte aussi le registre des machines (`knownMachines`) — quelle machine a utilisé ce hub, et
+quand pour la dernière fois. Alimenté à chaque `SessionStart`, pas seulement par `/synapse-doctor`
+lui-même.
