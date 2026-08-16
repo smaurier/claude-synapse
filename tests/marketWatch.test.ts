@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fetchRepoStats, watchKnownCompetitors, searchForNewCompetitors, runMarketWatch } from "../src/commands/marketWatch.js";
+import { fetchRepoStats, watchKnownCompetitors, searchForNewCompetitors, searchForNewCompetitorsMultiQuery, runMarketWatch } from "../src/commands/marketWatch.js";
 
 function fakeFetch(responses: Record<string, { status: number; body: unknown }>): typeof fetch {
   return (async (input: string | URL | Request) => {
@@ -14,9 +14,19 @@ describe("fetchRepoStats", () => {
   it("returns stats for an existing repo", async () => {
     const stats = await fetchRepoStats(
       "example/repo",
-      fakeFetch({ "example/repo": { status: 200, body: { stargazers_count: 42, html_url: "https://github.com/example/repo" } } }),
+      fakeFetch({
+        "example/repo": {
+          status: 200,
+          body: { stargazers_count: 42, html_url: "https://github.com/example/repo", pushed_at: "2026-08-01T00:00:00Z" },
+        },
+      }),
     );
-    expect(stats).toEqual({ fullName: "example/repo", stars: 42, url: "https://github.com/example/repo" });
+    expect(stats).toEqual({
+      fullName: "example/repo",
+      stars: 42,
+      url: "https://github.com/example/repo",
+      pushedAt: "2026-08-01T00:00:00Z",
+    });
   });
 
   it("returns null for a repo that 404s", async () => {
@@ -79,6 +89,63 @@ describe("searchForNewCompetitors", () => {
 
   it("returns an empty array rather than throwing on a search failure", async () => {
     expect(await searchForNewCompetitors("x", fakeFetch({}))).toEqual([]);
+  });
+
+  it("captures pushed_at so staleness can be judged by a human, not auto-filtered", async () => {
+    const results = await searchForNewCompetitors(
+      "claude memory",
+      fakeFetch({
+        "search/repositories": {
+          status: 200,
+          body: { items: [{ full_name: "someone-new/claude-mind", stargazers_count: 5, html_url: "y", pushed_at: "2024-01-01T00:00:00Z" }] },
+        },
+      }),
+    );
+    expect(results[0]?.pushedAt).toBe("2024-01-01T00:00:00Z");
+  });
+});
+
+// Ajouté 16/08 : une seule requête mot-clé fixe ratait des projets dont la
+// formulation diffère (prouvé sur claude-synapse lui-même — invisible à
+// "claude code memory sync plugin" avant que sa propre description soit
+// corrigée). searchForNewCompetitorsMultiQuery lance plusieurs formulations
+// + une recherche par topic GitHub (axe indépendant du texte) et fusionne.
+describe("searchForNewCompetitorsMultiQuery", () => {
+  it("merges results from multiple query variants, deduplicated", async () => {
+    const results = await searchForNewCompetitorsMultiQuery(
+      ["claude memory sync", "topic:claude-code memory"],
+      fakeFetch({
+        "q=claude%20memory%20sync": {
+          status: 200,
+          body: { items: [{ full_name: "found-by/keyword-query", stargazers_count: 5, html_url: "a", pushed_at: "x" }] },
+        },
+        "q=topic%3Aclaude-code%20memory": {
+          status: 200,
+          body: {
+            items: [
+              { full_name: "found-by/topic-query", stargazers_count: 3, html_url: "b", pushed_at: "x" },
+              { full_name: "found-by/keyword-query", stargazers_count: 5, html_url: "a", pushed_at: "x" }, // same repo, both queries
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(results.map((r) => r.fullName).sort()).toEqual(["found-by/keyword-query", "found-by/topic-query"]);
+  });
+
+  it("excludes already-known competitors across every query variant", async () => {
+    const results = await searchForNewCompetitorsMultiQuery(
+      ["query one", "query two"],
+      fakeFetch({
+        "search/repositories": {
+          status: 200,
+          body: { items: [{ full_name: "toroleapinc/claude-brain", stargazers_count: 78, html_url: "x", pushed_at: "x" }] },
+        },
+      }),
+      ["toroleapinc/claude-brain"],
+    );
+    expect(results).toEqual([]);
   });
 });
 

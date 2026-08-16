@@ -32,13 +32,13 @@ async function main(): Promise<void> {
 
     console.log("Concurrents connus (par étoiles) :");
     for (const r of report.knownCompetitors) {
-      console.log(`  ${r.fullName} — ${r.stars}★ (${r.url})`);
+      console.log(`  ${r.fullName} — ${r.stars}★, dernier push ${r.pushedAt} (${r.url})`);
     }
 
     if (report.possibleNewEntrants.length > 0) {
-      console.log("Nouveaux entrants possibles (non déjà suivis) :");
+      console.log("Nouveaux entrants possibles (non déjà suivis, plusieurs requêtes dont une par topic) :");
       for (const r of report.possibleNewEntrants.slice(0, 10)) {
-        console.log(`  ${r.fullName} — ${r.stars}★ (${r.url})`);
+        console.log(`  ${r.fullName} — ${r.stars}★, dernier push ${r.pushedAt} (${r.url})`);
       }
     } else {
       console.log("Aucun nouvel entrant détecté.");
