@@ -169,3 +169,14 @@ point of failure for writes when it isn't reachable.
 `/synapse-market-watch` tracks a handful of comparable projects and scans for new ones — see it
 for the current list, since that's exactly the kind of thing that goes stale in a written
 document and stays current in a command that actually queries GitHub.
+
+**A limitation in the watch mechanism itself, found 16/08**: it searches ONE fixed keyword
+string ("claude code memory sync plugin"), sorted by stars alone. Proven on Synapse's own repo
+before its description was fixed: it didn't match that query at all despite being exactly the
+kind of project it describes — different wording, same category, invisible to a single fixed
+query. A genuinely thorough "find the best of the market" pass needs more than this: multiple
+query phrasings, a topic-based search (`topic:claude-code`) as a second axis independent of
+wording, forks excluded, and activity/recency considered alongside star count (stars-only
+sorting surfaces popular-but-abandoned projects and buries active-but-new ones). Not built —
+`/synapse-market-watch` stays as a cheap, fast first pass; a deeper one-off review (like the
+16/08 competitive read of 6 projects) is still worth doing by hand periodically.
