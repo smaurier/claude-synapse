@@ -13,6 +13,18 @@
         ]
       }
     ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/postCompactCli.js\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10,
+            "statusMessage": "Synapse : réinjection des derniers résultats de recherche…"
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "matcher": "clear",
