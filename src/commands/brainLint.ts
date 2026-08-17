@@ -147,6 +147,33 @@ export function checkWipLimit(
   ];
 }
 
+/**
+ * Backlog 16/08 (agentic-stack's superseded_by, refined by Sylvain): flags
+ * a `metadata.superseded_by: <path>` that names a file absent from the
+ * corpus — hybridSearch.ts deliberately ignores this case rather than
+ * annotating a link to nothing (see applySupersession()), so this is the
+ * one place it actually gets surfaced to the user. A dangling reference
+ * usually means a rename/typo, or the replacement was deleted without
+ * updating the pointer — worth a look, not a silent no-op forever.
+ */
+export function checkSupersessionReferences(files: { path: string; content: string }[]): LintFinding[] {
+  const knownPaths = new Set(files.map((f) => f.path));
+  const findings: LintFinding[] = [];
+
+  for (const f of files) {
+    const target = extractFrontmatter(f.content)?.fields["metadata.superseded_by"];
+    if (target && !knownPaths.has(target)) {
+      findings.push({
+        path: f.path,
+        severity: "warning",
+        message: `\`superseded_by: ${target}\` pointe vers un fichier absent du corpus — renommage/typo, ou le remplaçant a été supprimé sans mettre à jour ce champ.`,
+      });
+    }
+  }
+
+  return findings;
+}
+
 export interface MergeCandidate {
   a: string;
   b: string;
@@ -177,7 +204,26 @@ export interface MergeCandidate {
  * Two files are scored by the MAX similarity across any pair of their
  * chunks — "these files overlap somewhere," not "their first chunks
  * happen to be similar."
+ *
+ * `metadata.protected: true` (backlog 16/08, étude de marché Synapse —
+ * "Von Restorff" protection, mnemoverse) excludes a file from pairing
+ * entirely, before any embedding call: a deliberately singular memory
+ * (a garde-fou, say) must never become a merge candidate, no matter how
+ * similar its content looks to another file. Excluded upstream of
+ * embedding rather than filtered from the results afterward — cheaper
+ * (protected files never pay the embed cost either), and it's the only
+ * way to make the guarantee unconditional rather than "unless a future
+ * change filters results differently".
  */
+function isProtected(content: string): boolean {
+  const fm = extractFrontmatter(content);
+  return fm?.fields["metadata.protected"] === "true";
+}
+
+function supersessionTarget(content: string): string | undefined {
+  return extractFrontmatter(content)?.fields["metadata.superseded_by"];
+}
+
 export async function findMergeCandidates(
   files: { path: string; content: string }[],
   embed: (text: string) => number[] | Promise<number[]>,
@@ -191,8 +237,14 @@ export async function findMergeCandidates(
   // above SharedConfig.mergeCandidatesMaxFiles. This function stays a pure
   // algorithm — the size policy belongs at the application layer, same
   // reasoning as checkWipLimit being a separate concern from lintFile.
+  const eligibleFiles = files.filter((f) => !isProtected(f.content));
+  // metadata.superseded_by (found redundant 16/08 by manual testing on a
+  // disposable hub, not by guessing): a pair already linked that way has
+  // its relationship already named and resolved — suggesting a merge on
+  // top of that is noise, not a second opinion.
+  const supersessionTargetByPath = new Map(eligibleFiles.map((f) => [f.path, supersessionTarget(f.content)]));
   const fileEmbeddings = await Promise.all(
-    files.map(async (f) => {
+    eligibleFiles.map(async (f) => {
       const chunks = await chunkFn(f.path, f.content);
       return { path: f.path, embeddings: await Promise.all(chunks.map((c) => embed(c.text))) };
     }),
@@ -201,6 +253,10 @@ export async function findMergeCandidates(
   const candidates: MergeCandidate[] = [];
   for (let i = 0; i < fileEmbeddings.length; i++) {
     for (let j = i + 1; j < fileEmbeddings.length; j++) {
+      const pathA = fileEmbeddings[i]!.path;
+      const pathB = fileEmbeddings[j]!.path;
+      if (supersessionTargetByPath.get(pathA) === pathB || supersessionTargetByPath.get(pathB) === pathA) continue;
+
       let best = 0;
       for (const eA of fileEmbeddings[i]!.embeddings) {
         for (const eB of fileEmbeddings[j]!.embeddings) {
@@ -209,7 +265,7 @@ export async function findMergeCandidates(
         }
       }
       if (best >= threshold) {
-        candidates.push({ a: fileEmbeddings[i]!.path, b: fileEmbeddings[j]!.path, score: best });
+        candidates.push({ a: pathA, b: pathB, score: best });
       }
     }
   }

@@ -7,7 +7,7 @@
  * the exit code — not unit-tested itself, same as any argv-parsing shim.
  */
 
-import { runBrainSearch } from "./brainSearch.js";
+import { runBrainSearch, formatSearchResult } from "./brainSearch.js";
 
 async function main(): Promise<void> {
   const [pluginDataDir, ...queryParts] = process.argv.slice(2);
@@ -26,8 +26,7 @@ async function main(): Promise<void> {
       return;
     }
     for (const r of results) {
-      const label = r.matchType === "exact" ? "correspondance exacte" : r.score.toFixed(3);
-      console.log(`${label}  ${r.path}`);
+      console.log(formatSearchResult(r));
     }
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));

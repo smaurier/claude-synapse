@@ -21,3 +21,18 @@ export async function runBrainSearch(pluginDataDir: string, query: string, topK 
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   return hybridSearchHub(localConfig.hubClonePath, query, topK);
 }
+
+/**
+ * Found 16/08 by manual testing on a disposable hub, not by guessing:
+ * applySupersession() (hybridSearch.ts) correctly de-ranks an outdated
+ * memory, but a superseded result and its replacement printed with the
+ * exact same label — nothing told a reader which of the two is current.
+ * This is what actually surfaces `supersededBy` to output; kept here
+ * (tested) rather than inlined in brainSearchCli.ts (argv/print shim,
+ * not unit-tested, same convention as every other *Cli.ts).
+ */
+export function formatSearchResult(r: HybridResult): string {
+  const label = r.matchType === "exact" ? "correspondance exacte" : r.score.toFixed(3);
+  const suffix = r.supersededBy ? `  [remplacé par : ${r.supersededBy}]` : "";
+  return `${label}  ${r.path}${suffix}`;
+}

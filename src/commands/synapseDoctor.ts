@@ -24,7 +24,7 @@ import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
-import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, type LintFinding, type MergeCandidate } from "./brainLint.js";
+import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, type LintFinding, type MergeCandidate } from "./brainLint.js";
 import { refreshProjects, type RefreshProjectsResult } from "./refreshProjects.js";
 
 export interface SynapseDoctorReport {
@@ -66,7 +66,12 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
   const corpus = loadCorpus(local.hubClonePath);
   const sharedForRead = readSharedConfig(local.hubClonePath);
   const merge = await findMergeCandidatesGuarded(corpus, embedLocal, chunkFileForEmbedding, sharedForRead.mergeCandidatesMaxFiles);
-  const findings = [...lintCorpus(corpus), ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit), ...merge.findings];
+  const findings = [
+    ...lintCorpus(corpus),
+    ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit),
+    ...checkSupersessionReferences(corpus),
+    ...merge.findings,
+  ];
   const mergeCandidates = merge.mergeCandidates;
 
   // Problème 6 follow-up: re-scan every root /synapse-refresh-projects has

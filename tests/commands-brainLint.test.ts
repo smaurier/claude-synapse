@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences } from "../src/commands/brainLint.js";
 import { chunkFile } from "../src/rag/chunk.js";
 
 const VALID_REFERENCE = `---
@@ -119,6 +119,34 @@ describe("lintCorpus", () => {
   });
 });
 
+// Backlog 16/08: hybridSearch.ts silently ignores a dangling
+// `superseded_by` (nothing to annotate a link to) rather than reporting
+// it — this is where a dangling reference actually gets surfaced.
+describe("checkSupersessionReferences", () => {
+  it("flags a superseded_by that points to a file absent from the corpus", () => {
+    const files = [
+      { path: "old.md", content: "---\nname: old\ndescription: x\nmetadata:\n  type: reference\n  superseded_by: fantome.md\n---\n\nx" },
+    ];
+    const findings = checkSupersessionReferences(files);
+    expect(findings).toEqual([
+      expect.objectContaining({ path: "old.md", severity: "warning" }),
+    ]);
+    expect(findings[0]?.message).toContain("fantome.md");
+  });
+
+  it("does not flag a superseded_by that points to a real file in the corpus", () => {
+    const files = [
+      { path: "old.md", content: "---\nname: old\ndescription: x\nmetadata:\n  type: reference\n  superseded_by: new.md\n---\n\nx" },
+      { path: "new.md", content: VALID_REFERENCE },
+    ];
+    expect(checkSupersessionReferences(files)).toEqual([]);
+  });
+
+  it("ignores files with no superseded_by field at all", () => {
+    expect(checkSupersessionReferences([{ path: "a.md", content: VALID_REFERENCE }])).toEqual([]);
+  });
+});
+
 describe("findMergeCandidates", () => {
   // One-hot-by-hash fake: identical content -> identical vector (similarity
   // 1), different content -> near-orthogonal (similarity ~0). Deliberately
@@ -166,6 +194,98 @@ describe("findMergeCandidates", () => {
     ];
     const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0);
     expect(candidates[0]!.score).toBeGreaterThanOrEqual(candidates.at(-1)!.score);
+  });
+
+  // Backlog 16/08 (étude de marché Synapse, idée "Von Restorff" / mnemoverse):
+  // a memory deliberately marked `protected: true` in frontmatter must never
+  // become a merge candidate, even if its content is near-identical to
+  // another file — the whole point is to shield a singular memory (a
+  // garde-fou, say) from being silently folded into something else.
+  const FRONTMATTER_BASE = "---\nname: x\ndescription: x\nmetadata:\n  type: reference";
+  const FRONTMATTER_PROTECTED = `${FRONTMATTER_BASE}\n  protected: true\n---\n\ncontenu presque identique`;
+  const FRONTMATTER_ORDINARY = `${FRONTMATTER_BASE}\n---\n\ncontenu presque identique`;
+
+  it("excludes a file marked protected: true from merge-candidate pairing, even if near-identical", async () => {
+    // Same frontmatter/body as the "ordinary" fixture below, save for the
+    // `protected: true` line — isolates the exclusion itself rather than
+    // the fake hash's sensitivity to unrelated text differences (name,
+    // path...). Without that care this test can read green for the wrong
+    // reason: not-yet-implemented exclusion logic masked by frontmatter
+    // text alone already pushing the fake embeddings apart.
+    const files = [
+      { path: "a.md", content: FRONTMATTER_PROTECTED },
+      { path: "b.md", content: FRONTMATTER_ORDINARY },
+    ];
+
+    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
+
+    expect(candidates).toEqual([]);
+  });
+
+  it("never calls embed() on a protected file's content (excluded before pairing, not just filtered from results)", async () => {
+    // The outcome-level test above could pass by coincidence: two files
+    // whose content differs by only the `protected: true` line will
+    // already hash to different buckets under the fake embedder, similarity
+    // low, no candidate — even with zero exclusion logic implemented. This
+    // test is immune to that: it asserts the protected file's text never
+    // reaches embed() at all, which can only be true once the exclusion is
+    // real.
+    const embed = vi.fn(fakeEmbed);
+    const files = [
+      { path: "a.md", content: FRONTMATTER_PROTECTED },
+      { path: "b.md", content: FRONTMATTER_ORDINARY },
+    ];
+
+    await findMergeCandidates(files, embed, undefined, 0.99);
+
+    const embeddedTexts = embed.mock.calls.map(([text]) => text as string);
+    expect(embeddedTexts.some((t) => t.includes("protected: true"))).toBe(false);
+  });
+
+  it("still pairs two ordinary near-identical files when neither is protected (regression guard)", async () => {
+    const files = [
+      { path: "a.md", content: FRONTMATTER_ORDINARY },
+      { path: "b.md", content: FRONTMATTER_ORDINARY },
+    ];
+
+    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
+
+    expect(candidates).toHaveLength(1);
+  });
+
+  // Found 16/08 by manual testing on a disposable hub (not by guessing): a
+  // pair already linked via superseded_by still showed up as "fusion
+  // possible" — redundant, the relationship between the two is already
+  // named and resolved, suggesting a merge on top of that is noise.
+  //
+  // Deliberately uses a constant embed (every file maps to the same
+  // vector, guaranteeing similarity 1.0 for ANY pair) rather than
+  // fakeEmbed — isolates the exclusion logic itself from whether two
+  // pieces of test content happen to hash into the same bucket, the exact
+  // trap that produced a false-green earlier this session.
+  it("does not suggest merging a pair already linked via superseded_by — that relationship is already resolved, not a duplicate to fuse", async () => {
+    const alwaysSameEmbed = (): number[] => [1, 0, 0];
+    const files = [
+      {
+        path: "old.md",
+        content: "---\nname: old\ndescription: x\nmetadata:\n  type: reference\n  superseded_by: new.md\n---\n\nx",
+      },
+      { path: "new.md", content: "---\nname: new\ndescription: x\nmetadata:\n  type: reference\n---\n\ny" },
+      { path: "other.md", content: "---\nname: other\ndescription: x\nmetadata:\n  type: reference\n---\n\nz" },
+    ];
+
+    const candidates = await findMergeCandidates(files, alwaysSameEmbed, undefined, 0.99);
+
+    // old<->new excluded (superseded link already resolves that relationship);
+    // every other pair still flagged (positive control — proves this isn't
+    // just suppressing all pairing).
+    expect(candidates.map((c) => [c.a, c.b].sort())).toEqual(
+      expect.arrayContaining([
+        ["new.md", "other.md"],
+        ["old.md", "other.md"],
+      ]),
+    );
+    expect(candidates.some((c) => [c.a, c.b].sort().join() === ["new.md", "old.md"].sort().join())).toBe(false);
   });
 
   // Regression: the first version called embed(f.content) directly on the

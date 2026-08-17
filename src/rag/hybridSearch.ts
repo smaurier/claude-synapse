@@ -27,6 +27,7 @@
 
 import { loadCorpus } from "./corpus.js";
 import { searchHub } from "./searchHub.js";
+import { extractFrontmatter } from "../commands/brainLint.js";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -43,6 +44,48 @@ export interface HybridResult {
   path: string;
   score: number;
   matchType: "exact" | "semantic";
+  /** Set when this file's frontmatter names a `superseded_by:` target that
+   *  actually exists in the corpus — the path of the version that replaces
+   *  it. Never removes the result; see applySupersession(). */
+  supersededBy?: string;
+}
+
+/**
+ * Supersession (backlog 16/08, étude de marché Synapse — agentic-stack's
+ * `superseded_by_map`, refined by Sylvain): `metadata.superseded_by:
+ * <path>` on a memory marks it as replaced by another, specific memory —
+ * NOT "this project is closed" (that's the existing `expires` convention,
+ * which already keeps closed memories fully searchable as a documentary
+ * base — never conflate the two). The point is narrower: when two files
+ * would otherwise both surface for the same query, make it unambiguous
+ * which one is the current truth, without hiding the other — a corrected
+ * rule and its outdated predecessor should never look equally "current"
+ * in a result list.
+ *
+ * Deliberately reorders rather than filters: the superseded file is moved
+ * after the version that replaces it (when that version is also in the
+ * results — nothing to reorder against otherwise, so it stays in place)
+ * and annotated with `supersededBy`, but it is never dropped. A dangling
+ * `superseded_by` (target not present anywhere in the corpus) is brain-
+ * lint's job to flag as a finding — search silently ignores it rather than
+ * annotating a link to nothing.
+ */
+export function applySupersession(results: HybridResult[], corpus: { path: string; content: string }[]): HybridResult[] {
+  const corpusPaths = new Set(corpus.map((f) => f.path));
+  const byPath = new Map(corpus.map((f) => [f.path, f.content]));
+
+  const annotated = results.map((r): HybridResult => {
+    const content = byPath.get(r.path);
+    const supersededBy = content ? extractFrontmatter(content)?.fields["metadata.superseded_by"] : undefined;
+    return supersededBy && corpusPaths.has(supersededBy) ? { ...r, supersededBy } : r;
+  });
+
+  // Stable-ish partition: superseded entries sink after the entry they
+  // name (or after everything else, if that entry isn't in this result
+  // set) — plain results keep their original relative order.
+  const superseded = annotated.filter((r) => r.supersededBy);
+  const rest = annotated.filter((r) => !r.supersededBy);
+  return [...rest, ...superseded];
 }
 
 /**
@@ -64,5 +107,5 @@ export async function hybridSearchHub(hubClonePath: string, query: string, topK 
     ...semanticResults.filter((r) => !exactSet.has(r.path)).map((r): HybridResult => ({ ...r, matchType: "semantic" })),
   ];
 
-  return merged.slice(0, topK);
+  return applySupersession(merged, corpus).slice(0, topK);
 }
