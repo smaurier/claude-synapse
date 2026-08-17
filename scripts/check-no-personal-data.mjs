@@ -12,12 +12,25 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { scanFilesForPersonalData } from "../dist/security/personalDataScan.js";
 
+const EXCLUDED = new Set([
+  // This script's own fixtures/denylist necessarily NAME what they
+  // search for — scanning them would always self-flag.
+  "src/security/personalDataScan.ts",
+  "tests/personalDataScan.test.ts",
+  "scripts/check-no-personal-data.mjs",
+  // The maintainer's real name in the copyright line is intentional, not
+  // a leak — confirmed explicitly (16/08): the public identity is
+  // already de-anonymized via a linked LinkedIn profile, so hiding it
+  // here specifically would protect nothing. Everywhere else in the repo
+  // (comments, code, commit history) still avoids naming them directly —
+  // this is the one deliberate, narrow exception, not a loophole.
+  "LICENSE",
+]);
+
 const trackedFiles = execSync("git ls-files", { encoding: "utf8" })
   .split("\n")
   .filter(Boolean)
-  // This script's own fixtures/denylist necessarily NAME what they
-  // search for — scanning them would always self-flag.
-  .filter((f) => f !== "src/security/personalDataScan.ts" && f !== "tests/personalDataScan.test.ts" && f !== "scripts/check-no-personal-data.mjs");
+  .filter((f) => !EXCLUDED.has(f));
 
 const files = trackedFiles.map((path) => {
   try {
