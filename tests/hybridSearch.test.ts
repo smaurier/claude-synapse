@@ -54,7 +54,7 @@ describe("findExactMatches", () => {
 });
 
 // Backlog 16/08 (étude de marché Synapse, idée agentic-stack "superseded_by")
-// — refined by Sylvain: this must never HIDE a superseded memory (a closed
+// — refined after review: this must never HIDE a superseded memory (a closed
 // project stays a valid documentary base per his own "on ne supprime plus"
 // convention), only make clear, in search results, which of two conflicting
 // versions is current. So: de-rank + annotate, never filter out.

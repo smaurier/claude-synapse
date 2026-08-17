@@ -17,3 +17,10 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
+      # Backlog 16/08 (étude de marché Synapse) — repeatable replacement
+      # for the one-time-only "revue anti-données-perso" done by hand
+      # before the first public push (14/08). Needs dist/ (the build step
+      # above), scans src/security/personalDataScan.js against every
+      # git-tracked file.
+      - run: node scripts/check-no-personal-data.mjs

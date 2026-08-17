@@ -52,7 +52,7 @@ export interface HybridResult {
 
 /**
  * Supersession (backlog 16/08, étude de marché Synapse — agentic-stack's
- * `superseded_by_map`, refined by Sylvain): `metadata.superseded_by:
+ * `superseded_by_map`, refined after review): `metadata.superseded_by:
  * <path>` on a memory marks it as replaced by another, specific memory —
  * NOT "this project is closed" (that's the existing `expires` convention,
  * which already keeps closed memories fully searchable as a documentary

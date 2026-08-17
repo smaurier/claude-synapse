@@ -148,7 +148,7 @@ export function checkWipLimit(
 }
 
 /**
- * Backlog 16/08 (agentic-stack's superseded_by, refined by Sylvain): flags
+ * Backlog 16/08 (agentic-stack's superseded_by, refined after review): flags
  * a `metadata.superseded_by: <path>` that names a file absent from the
  * corpus — hybridSearch.ts deliberately ignores this case rather than
  * annotating a link to nothing (see applySupersession()), so this is the
