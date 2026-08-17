@@ -27,11 +27,11 @@ afterEach(() => {
 
 describe("registerProjectRoot", () => {
   it("adds a new project root to a fresh LocalConfig with no registry yet", () => {
-    registerProjectRoot(pluginDataDir, "claude-synapse", "C:\\Users\\lrtechnologies\\Documents\\projects\\claude-synapse");
+    registerProjectRoot(pluginDataDir, "claude-synapse", "C:\\Users\\exemple\\Documents\\projects\\claude-synapse");
 
     const updated = readLocalConfig(configPath);
     expect(updated.knownProjectRoots).toEqual({
-      "claude-synapse": "C:\\Users\\lrtechnologies\\Documents\\projects\\claude-synapse",
+      "claude-synapse": "C:\\Users\\exemple\\Documents\\projects\\claude-synapse",
     });
   });
 

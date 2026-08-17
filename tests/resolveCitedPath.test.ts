@@ -3,10 +3,10 @@ import { resolveCitedPath } from "../src/commands/citedCodeDrift.js";
 
 describe("resolveCitedPath", () => {
   it("splits a cites value into a registered project root and the relative path within it", () => {
-    const roots = { "claude-synapse": "C:\\Users\\lrtechnologies\\Documents\\projects\\claude-synapse" };
+    const roots = { "claude-synapse": "C:\\Users\\exemple\\Documents\\projects\\claude-synapse" };
     const resolved = resolveCitedPath("claude-synapse/src/commands/brainLint.ts", roots);
     expect(resolved).toEqual({
-      root: "C:\\Users\\lrtechnologies\\Documents\\projects\\claude-synapse",
+      root: "C:\\Users\\exemple\\Documents\\projects\\claude-synapse",
       relativePath: "src/commands/brainLint.ts",
     });
   });
