@@ -25,6 +25,51 @@
 
 import { extractFrontmatter } from "./brainLint.js";
 import type { LintFinding } from "./brainLint.js";
+import { runGit } from "../config/git.js";
+
+/**
+ * The open question this file used to flag as unsolved (16/08) —
+ * resolved 17/08: `cites` reads `<project-name>/<relative-path>`, the
+ * project name resolves against LocalConfig.knownProjectRoots
+ * (registerProjectRoot.ts), a per-machine registry. Only the name
+ * travels in frontmatter — never an absolute path (feedback_chemins_
+ * multipostes) — so the same memory file resolves correctly on any
+ * machine that has registered that project locally, and simply can't be
+ * checked (not silently assumed clean) on one that hasn't.
+ */
+export function resolveCitedPath(
+  cites: string,
+  knownProjectRoots: Record<string, string>,
+): { root: string; relativePath: string } | null {
+  const slashIdx = cites.indexOf("/");
+  if (slashIdx === -1) return null;
+
+  const projectName = cites.slice(0, slashIdx);
+  const relativePath = cites.slice(slashIdx + 1);
+  const root = knownProjectRoots[projectName];
+  return root ? { root, relativePath } : null;
+}
+
+/**
+ * The real gitLastCommitDate to inject into checkCitedCodeDrift() in
+ * production — everywhere else (tests) injects a fake instead. An
+ * unresolvable project name returns null, same as "not found in git
+ * history": checkCitedCodeDrift already treats that as a finding worth
+ * surfacing (rename/typo/not-registered-here), never as "assume clean".
+ */
+export function createGitLastCommitDateResolver(knownProjectRoots: Record<string, string>): GitLastCommitDate {
+  return async (cites: string): Promise<string | null> => {
+    const resolved = resolveCitedPath(cites, knownProjectRoots);
+    if (!resolved) return null;
+    try {
+      const stdout = await runGit(["log", "-1", "--format=%cI", "--", resolved.relativePath], resolved.root);
+      const date = stdout.trim();
+      return date || null; // empty stdout: path exists on disk but has no commits touching it (or git found nothing) — same "can't confirm" outcome
+    } catch {
+      return null; // not a git repo, path never existed, etc. — same treatment
+    }
+  };
+}
 
 export type GitLastCommitDate = (citedPath: string) => Promise<string | null>;
 

@@ -10,6 +10,7 @@ import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../co
 import { loadCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, type LintFinding, type MergeCandidate } from "./brainLint.js";
+import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 
 export interface BrainLintReport {
   findings: LintFinding[];
@@ -25,10 +26,13 @@ export async function runBrainLint(pluginDataDir: string): Promise<BrainLintRepo
   // chunkFileForEmbedding, not the default character heuristic — same
   // token-exact chunker as production.ts, never a second weaker path.
   const merge = await findMergeCandidatesGuarded(corpus, embedLocal, chunkFileForEmbedding, shared.mergeCandidatesMaxFiles);
+  const citedCodeDriftFindings = await checkCitedCodeDrift(corpus, createGitLastCommitDateResolver(local.knownProjectRoots ?? {}));
+
   const findings = [
     ...lintCorpus(corpus),
     ...checkWipLimit(corpus, new Date(), shared.wipLimit),
     ...checkSupersessionReferences(corpus),
+    ...citedCodeDriftFindings,
     ...merge.findings,
   ];
 

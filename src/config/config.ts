@@ -104,6 +104,15 @@ export interface LocalConfig {
   hubUrl: string;
   hubClonePath: string;
   machineId: string;
+  /** Project name -> absolute local path, THIS machine only (backlog
+   *  16/08/17/08, item 8: resolves `metadata.cites: <project>/<path>`
+   *  memory references to a real git repo to check for drift). Belongs
+   *  here, not SharedConfig — a local absolute path is inherently
+   *  machine-specific (feedback_chemins_multipostes), the same reasoning
+   *  that already keeps hubClonePath itself local-only. Optional: absent
+   *  on every LocalConfig written before this field existed, and on any
+   *  machine that never registered a project. */
+  knownProjectRoots?: Record<string, string>;
 }
 
 export function readLocalConfig(path: string): LocalConfig {

@@ -25,6 +25,7 @@ import { loadCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
 import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, type LintFinding, type MergeCandidate } from "./brainLint.js";
+import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 import { refreshProjects, type RefreshProjectsResult } from "./refreshProjects.js";
 
 export interface SynapseDoctorReport {
@@ -66,10 +67,13 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
   const corpus = loadCorpus(local.hubClonePath);
   const sharedForRead = readSharedConfig(local.hubClonePath);
   const merge = await findMergeCandidatesGuarded(corpus, embedLocal, chunkFileForEmbedding, sharedForRead.mergeCandidatesMaxFiles);
+  const citedCodeDriftFindings = await checkCitedCodeDrift(corpus, createGitLastCommitDateResolver(local.knownProjectRoots ?? {}));
+
   const findings = [
     ...lintCorpus(corpus),
     ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit),
     ...checkSupersessionReferences(corpus),
+    ...citedCodeDriftFindings,
     ...merge.findings,
   ];
   const mergeCandidates = merge.mergeCandidates;
