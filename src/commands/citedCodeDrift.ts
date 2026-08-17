@@ -1,7 +1,7 @@
 /**
  * Backlog 16/08 (étude de marché Synapse — hippo): staleness judged by
  * whether the code a memory cites has actually moved (git history), not
- * by the memory's calendar age. Deliberately narrow, per Sylvain: only
+ * by the memory's calendar age. Deliberately narrow, per feedback: only
  * memories with an explicit `metadata.cites: <path>` — most personal-hub
  * content doesn't cite code, this is not a general staleness mechanism
  * and never claims to be.

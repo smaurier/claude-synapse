@@ -3,7 +3,7 @@ import { checkCitedCodeDrift } from "../src/commands/citedCodeDrift.js";
 
 // Backlog 16/08 (étude de marché Synapse — hippo): staleness judged by
 // whether the code a memory CITES has actually moved (git history),
-// not by the memory's calendar age. Scoped narrowly, per Sylvain: only
+// not by the memory's calendar age. Scoped narrowly, per feedback: only
 // memories with an explicit `metadata.cites: <path>` — most of a
 // personal hub's content doesn't cite code at all, this isn't a general
 // staleness mechanism.
