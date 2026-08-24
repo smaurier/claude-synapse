@@ -30,7 +30,15 @@ const EXCLUDED = new Set([
 const trackedFiles = execSync("git ls-files", { encoding: "utf8" })
   .split("\n")
   .filter(Boolean)
-  .filter((f) => !EXCLUDED.has(f));
+  .filter((f) => !EXCLUDED.has(f))
+  // dist/ is committed (decided 24/08 — plain `git clone` installs need
+  // compiled JS present, see .gitignore) but it's build output mirroring
+  // src/, already scanned above with its own EXCLUDED entries. Scanning
+  // dist/ too is pure redundancy AND reopens exactly the self-reference
+  // problem those entries exist to prevent: dist/security/personalDataScan.js
+  // is the compiled form of the one file whose whole job is to NAME what
+  // it searches for.
+  .filter((f) => !f.startsWith("dist/"));
 
 const files = trackedFiles.map((path) => {
   try {
