@@ -27,5 +27,15 @@ export declare function refreshProjects(rootDir: string, hubClonePath: string, e
 /** The SessionStart-time counterpart: ensures ONE specific project (the
  *  current one, from ${CLAUDE_PROJECT_DIR}) is linked, without scanning a
  *  whole root — "zero action utilisateur" per the design, cheap enough to
- *  run every session start. */
+ *  run every session start.
+ *
+ *  Unlike refreshProjects() above, this is meant to run on a project Claude
+ *  Code has NEVER seen before — the ".claude/ marker already exists" guard
+ *  that keeps refreshProjects() safe doesn't apply here by design. Found
+ *  24/08 (real end-to-end run, not caught by any existing unit test):
+ *  createLink() never creates linkPath's own parent directory, so linking
+ *  ".claude/memory" under a project whose ".claude/" doesn't exist yet
+ *  crashed on exactly the "brand-new project" case this function exists
+ *  for. ensureDirectory() is idempotent (mkdirSync recursive) — safe to
+ *  call unconditionally, including when .claude/ already exists. */
 export declare function ensureCurrentProjectLinked(projectDir: string, hubClonePath: string): EnsureLinkResult;

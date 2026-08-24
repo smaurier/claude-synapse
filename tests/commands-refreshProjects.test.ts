@@ -64,4 +64,21 @@ describe("ensureCurrentProjectLinked", () => {
     expect(result.action).toBe("created");
     expect(inspectLink(join(projectDir, ".claude", "memory"), hubDir)).toBe("ok");
   });
+
+  it("works on a genuinely brand-new project — .claude/ doesn't exist yet at all", () => {
+    // The actual "zero action required" case this function exists for
+    // (DESIGN.md decision #6: "a brand-new project gets linked
+    // automatically at session start"), found missing 24/08 by running the
+    // real SessionStart hook end-to-end rather than only the unit tests —
+    // every existing test here (including the one right above) pre-creates
+    // .claude/ first, masking that createLink() never creates linkPath's
+    // own parent directory.
+    const projectDir = join(root, "projet-jamais-ouvert-avant");
+    mkdirSync(projectDir, { recursive: true }); // the project itself exists, .claude/ does not
+
+    const result = ensureCurrentProjectLinked(projectDir, hubDir);
+
+    expect(result.action).toBe("created");
+    expect(inspectLink(join(projectDir, ".claude", "memory"), hubDir)).toBe("ok");
+  });
 });

@@ -15,8 +15,8 @@
  * function only ever adds links, never removes.
  */
 import { readdirSync, statSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { ensureHubLink } from "../jonction/jonction.js";
+import { join, dirname } from "node:path";
+import { ensureHubLink, ensureDirectory } from "../jonction/jonction.js";
 /** The one place that knows the per-project memory link convention
  *  (<project>/.claude/memory) — was duplicated 3x across this file and
  *  refreshIndex.ts (found 14/08, code review) before being extracted here. */
@@ -41,8 +41,20 @@ export function refreshProjects(rootDir, hubClonePath, exclusions = []) {
 /** The SessionStart-time counterpart: ensures ONE specific project (the
  *  current one, from ${CLAUDE_PROJECT_DIR}) is linked, without scanning a
  *  whole root — "zero action utilisateur" per the design, cheap enough to
- *  run every session start. */
+ *  run every session start.
+ *
+ *  Unlike refreshProjects() above, this is meant to run on a project Claude
+ *  Code has NEVER seen before — the ".claude/ marker already exists" guard
+ *  that keeps refreshProjects() safe doesn't apply here by design. Found
+ *  24/08 (real end-to-end run, not caught by any existing unit test):
+ *  createLink() never creates linkPath's own parent directory, so linking
+ *  ".claude/memory" under a project whose ".claude/" doesn't exist yet
+ *  crashed on exactly the "brand-new project" case this function exists
+ *  for. ensureDirectory() is idempotent (mkdirSync recursive) — safe to
+ *  call unconditionally, including when .claude/ already exists. */
 export function ensureCurrentProjectLinked(projectDir, hubClonePath) {
-    return ensureHubLink(hubClonePath, projectMemoryLinkPath(projectDir));
+    const linkPath = projectMemoryLinkPath(projectDir);
+    ensureDirectory(dirname(linkPath));
+    return ensureHubLink(hubClonePath, linkPath);
 }
 //# sourceMappingURL=refreshProjects.js.map
