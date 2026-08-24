@@ -1,7 +1,7 @@
 /**
  * A plugin installed the way `claude plugin marketplace add` +
  * `claude plugin install` actually work — confirmed 24/08 on two real
- * installs (LR and sylva) — is a plain `git clone`: no `npm install`, no
+ * installs — is a plain `git clone`: no `npm install`, no
  * build step runs automatically. Committing dist/ (a packaging decision,
  * not code) solves half of that; this solves the other half, for the one
  * real npm dependency (@huggingface/transformers) this plugin has at

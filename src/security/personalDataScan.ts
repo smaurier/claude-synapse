@@ -25,20 +25,17 @@ interface PersonalDataPattern {
 }
 
 const PATTERNS: PersonalDataPattern[] = [
-  { name: "domaine email employeur", regex: /@lrtechnologies\.fr\b/i },
-  // Windows and POSIX home paths for either of the maintainer's two
-  // machines — a hardcoded absolute path is a leak regardless of which
-  // poste wrote it (feedback_chemins_multipostes: every absolute path
-  // belongs to a specific machine, never portable). `+` on the separator,
-  // not a single char: real source writes a Windows path as an escaped
-  // double backslash ("C:\\Users\\...") — a single-backslash separator
-  // would miss that, the actual, realistic shape this is meant to catch.
-  { name: "chemin personnel réel", regex: /[/\\]+Users[/\\]+(sylva|lrtechnologies)[/\\]+/i },
-  // Word-boundary aware (Unicode-aware, same reasoning as findExactMatches
-  // in hybridSearch.ts) — a plain substring match previously produced real
-  // false positives there ("LEP" inside "FilePath"); same risk here
-  // against words that merely contain "sylvain".
-  { name: "prénom en clair", regex: /(?<![\p{L}\p{N}_])sylvain(?![\p{L}\p{N}_])/iu },
+  // Any hardcoded Windows absolute path under Users — \w+ covers any username
+  // so this catches any maintainer's machine-specific path generically. The
+  // separator uses [/\\]+ because real Windows source writes escaped double
+  // backslash ("C:\\Users\\...") — a single-char class would miss that.
+  { name: "hardcoded Windows path", regex: /C:[/\\]+Users[/\\]+\w+[/\\]+/i },
+  // Same for POSIX-style absolute home paths (/home/<user>/ or /Users/<user>/).
+  { name: "hardcoded POSIX path", regex: /\/(?:home|Users)\/\w+\//i },
+  // Maintainer-specific patterns (employer email domain, first name, machine
+  // usernames, etc.) are intentionally absent here — they belong in a local
+  // config or CI secret, never committed to the public repo. Add them in your
+  // own fork's local-config.json or as a separate gitignored deny-list.
 ];
 
 export interface PersonalDataMatch {
