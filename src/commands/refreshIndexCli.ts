@@ -16,6 +16,7 @@
 
 import { existsSync } from "node:fs";
 import { defaultLocalConfigPath } from "../config/config.js";
+import { ensureDependencies, resolvePluginRoot } from "../config/dependencies.js";
 import { runRefreshIndex } from "./refreshIndex.js";
 
 async function main(): Promise<void> {
@@ -26,6 +27,11 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+
+  // A plain `git clone` install (see dependencies.ts) never runs `npm
+  // install` — first real invocation of this hook self-heals it. Cheap
+  // no-op check on every session after the first.
+  ensureDependencies(resolvePluginRoot(import.meta.url));
 
   // Checked explicitly rather than pattern-matching readLocalConfig's error
   // message: a string match would also silently swallow a genuine path

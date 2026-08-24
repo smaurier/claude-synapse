@@ -108,3 +108,46 @@ describe("runSynapseInit — hub visibility gate", () => {
     expect(result.visibilityWarning).toMatch(/non vérifiable/);
   }, 15_000);
 });
+
+// Ajouté 24/08 : couvre le cas réel qui a bloqué la reprise du 24/08 (voir
+// memory/project_claude_brain_opensource.md, item 14) — un dossier existant,
+// déjà cloné et déjà utilisé en place (pas un nouveau clone dans
+// <pluginDataDir>/hub), adopté comme hub sans jamais être dupliqué ni
+// déplacé.
+describe("runSynapseInit — adopting an existing directory as hub", () => {
+  it("adopts an existing clone in place (hubClonePath override = linkPath): pulls, never clones, never backs up its own content", async () => {
+    const existingDir = join(root, "deja-la", "memory");
+    mkdirSync(join(root, "deja-la"), { recursive: true });
+    git(["clone", bareRepoPath, existingDir], root);
+
+    const result = await runSynapseInit({
+      pluginDataDir,
+      hubUrl: bareRepoPath,
+      linkPath: existingDir,
+      hubClonePath: existingDir,
+    });
+
+    expect(result.hubClonePath).toBe(existingDir);
+    expect(result.link.action).toBe("already-ok"); // self-hosting: nothing to link
+    expect(readFileSync(join(existingDir, "existing-memory.md"), "utf8")).toBe("fait existant");
+    // No backup sibling was ever created next to the adopted directory.
+    expect(existsSync(join(root, "deja-la", "memory.bak"))).toBe(false);
+  }, 15_000);
+
+  it("persists a corpusRoot override into the adopted hub's shared config", async () => {
+    const existingDir = join(root, "deja-la", "memory");
+    mkdirSync(join(root, "deja-la"), { recursive: true });
+    git(["clone", bareRepoPath, existingDir], root);
+
+    await runSynapseInit({
+      pluginDataDir,
+      hubUrl: bareRepoPath,
+      linkPath: existingDir,
+      hubClonePath: existingDir,
+      corpusRoot: "memory",
+    });
+
+    const sharedConfig = JSON.parse(readFileSync(join(existingDir, ".synapse", "config.json"), "utf8"));
+    expect(sharedConfig.corpusRoot).toBe("memory");
+  }, 15_000);
+});

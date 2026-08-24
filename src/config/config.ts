@@ -62,6 +62,16 @@ export interface SharedConfig {
    *  ensureCurrentProjectLinked already handles brand-new project sessions
    *  automatically, this is the complementary case. */
   refreshProjectsRoots: string[];
+  /** Where the RAG corpus actually lives, relative to the hub root — added
+   *  24/08 for the "adopt an existing directory as hub" path. Most hubs are
+   *  created BY Synapse and contain nothing but memory, so "." (the hub
+   *  root itself) is right by default. But adopting a pre-existing repo as
+   *  hub means the real memory can be a subfolder of something that also
+   *  holds unrelated material (docs, scripts, other tooling) that indexing
+   *  should never see. Shared, not local: every machine must scan the same
+   *  subset, or the corpus fingerprint two machines compute for the "did
+   *  anything change" staleness check would drift between them. */
+  corpusRoot: string;
 }
 
 export const DEFAULT_SHARED_CONFIG: SharedConfig = {
@@ -76,6 +86,7 @@ export const DEFAULT_SHARED_CONFIG: SharedConfig = {
   mergeCandidatesMaxFiles: 500,
   knownMachines: {},
   refreshProjectsRoots: [],
+  corpusRoot: ".",
 };
 
 function sharedConfigPath(hubDir: string): string {
@@ -92,6 +103,15 @@ export function readSharedConfig(hubDir: string): SharedConfig {
   }
   const onDisk = JSON.parse(readFileSync(path, "utf8")) as Partial<SharedConfig>;
   return { ...DEFAULT_SHARED_CONFIG, ...onDisk };
+}
+
+/** The directory the RAG corpus loader should actually scan for this hub —
+ *  the hub root itself unless SharedConfig.corpusRoot narrows it to a
+ *  subdirectory. Centralized here (not left to each RAG call site) so
+ *  searchHub/hybridSearchHub/refreshHubIndex can never disagree on it. */
+export function resolveCorpusRoot(hubClonePath: string): string {
+  const { corpusRoot } = readSharedConfig(hubClonePath);
+  return corpusRoot === "." ? hubClonePath : join(hubClonePath, corpusRoot);
 }
 
 export function writeSharedConfig(hubDir: string, config: SharedConfig): void {

@@ -31,6 +31,13 @@ export interface BootstrapOptions {
   hubClonePath: string;
   linkPath: string;
   machineId: string;
+  /** Set only when the caller explicitly wants to (re)configure where the
+   *  RAG corpus lives within the hub (the "adopt an existing directory"
+   *  path, added 24/08) — e.g. "memory" when the hub root also holds
+   *  non-memory material. Omitted: an existing hub's corpusRoot is left
+   *  exactly as read, so a second machine re-running /synapse-init plain
+   *  can never silently reset what a previous machine configured. */
+  corpusRoot?: string;
   cloneOrPullHub: (hubUrl: string, hubClonePath: string) => void | Promise<void>;
   createHubLink: (hubClonePath: string, linkPath: string) => void;
   verifyLink: (linkPath: string, hubClonePath: string) => boolean;
@@ -65,6 +72,9 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   let sharedConfig: SharedConfig;
   try {
     sharedConfig = readSharedConfig(opts.hubClonePath);
+    if (opts.corpusRoot !== undefined) {
+      sharedConfig = { ...sharedConfig, corpusRoot: opts.corpusRoot };
+    }
     writeSharedConfig(opts.hubClonePath, sharedConfig);
     ensureHubGitignore(opts.hubClonePath);
   } finally {

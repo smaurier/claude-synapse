@@ -26,11 +26,42 @@ export async function runGit(args: string[], cwd: string): Promise<string> {
   return stdout;
 }
 
+/** Trailing ".git" and trailing slashes are cosmetic — the same remote can be
+ *  spelled several ways (SSH vs HTTPS form, trailing slash on a local path).
+ *  Not a full URL-equivalence check (that would need to resolve SSH aliases,
+ *  case-fold Windows paths, etc.) — just enough to not false-positive on the
+ *  same spelling this codebase's own callers actually produce. */
+function normalizeRemote(url: string): string {
+  return url.replace(/\/+$/, "").replace(/\.git$/, "");
+}
+
 export async function cloneOrPullHub(hubUrl: string, hubClonePath: string): Promise<void> {
   const alreadyCloned = existsSync(join(hubClonePath, ".git"));
 
   try {
     if (alreadyCloned) {
+      // Adopting a pre-existing directory as the hub (rather than one this
+      // code cloned itself) means hubClonePath's origin might be a repo the
+      // caller never intended — pulling blindly would mix unrelated history
+      // into what's supposed to be the one true memory hub. Checked BEFORE
+      // any pull is attempted, never after.
+      let actualOrigin: string;
+      try {
+        actualOrigin = (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: hubClonePath })).stdout.trim();
+      } catch (err) {
+        const cause = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `synapse: "${hubClonePath}" contient un ".git" mais son remote "origin" est illisible.\n` +
+            `Diagnostic : ${cause}\nCe n'est probablement pas un clone valide du hub attendu.`,
+        );
+      }
+      if (normalizeRemote(actualOrigin) !== normalizeRemote(hubUrl)) {
+        throw new Error(
+          `synapse: refus de synchroniser "${hubClonePath}" — son remote "origin" ("${actualOrigin}") ` +
+            `ne correspond pas au hub attendu ("${hubUrl}"). Adopter ce dossier comme hub le mélangerait ` +
+            `avec un dépôt différent. Vérifier le chemin, ou pointer vers le bon dossier.`,
+        );
+      }
       await execFileAsync("git", ["pull", "--ff-only"], { cwd: hubClonePath });
     } else {
       await execFileAsync("git", ["clone", hubUrl, hubClonePath]);

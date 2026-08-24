@@ -25,6 +25,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { CorpusFile } from "./hash.js";
+import { resolveCorpusRoot } from "../config/config.js";
 
 const SKIP_DIRS = new Set([".git", "node_modules", ".synapse"]);
 
@@ -32,6 +33,19 @@ export function loadCorpus(rootDir: string): CorpusFile[] {
   const files: CorpusFile[] = [];
   walk(rootDir, rootDir, files);
   return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * The corpusRoot-aware entrypoint: what searchHub/hybridSearchHub/
+ * refreshHubIndex actually call. loadCorpus() itself stays a plain
+ * "walk this directory" primitive (still used directly by tests and
+ * anywhere the caller already knows the exact directory to scan) — this
+ * is the one place that also asks "which directory, for THIS hub" via
+ * SharedConfig.corpusRoot (added 24/08, "adopt an existing directory as
+ * hub" — see resolveCorpusRoot's own doc comment).
+ */
+export function loadHubCorpus(hubClonePath: string): CorpusFile[] {
+  return loadCorpus(resolveCorpusRoot(hubClonePath));
 }
 
 function walk(rootDir: string, dir: string, out: CorpusFile[]): void {

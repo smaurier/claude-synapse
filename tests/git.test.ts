@@ -73,4 +73,34 @@ describe("cloneOrPullHub", () => {
 
     await expect(cloneOrPullHub(join(root, "n-existe-pas.git"), hubClonePath)).rejects.toThrow(/synapse:/);
   }, 15_000);
+
+  it("refuses to pull an existing directory whose origin remote points at a DIFFERENT repo", async () => {
+    // The "adopt an existing directory as hub" path makes hubClonePath a
+    // user-chosen, pre-existing location for the first time — previously it
+    // was always either empty or a clone this same code had made. Pulling
+    // blindly into whatever already has a .git there would silently mix an
+    // unrelated repo's history with the memory hub's if the caller passed
+    // the wrong path. This must be caught BEFORE any pull is attempted.
+    const otherBareRepoPath = join(root, "other-bare.git");
+    git(["init", "--bare", otherBareRepoPath], root);
+    const otherWorkDir = join(root, "other-work");
+    git(["init", otherWorkDir], root);
+    git(["config", "user.email", "test@example.com"], otherWorkDir);
+    git(["config", "user.name", "Test"], otherWorkDir);
+    git(["checkout", "-b", "main"], otherWorkDir);
+    writeFileSync(join(otherWorkDir, "unrelated.md"), "un autre projet", "utf8");
+    git(["add", "."], otherWorkDir);
+    git(["commit", "-m", "premier commit"], otherWorkDir);
+    git(["remote", "add", "origin", otherBareRepoPath], otherWorkDir);
+    git(["push", "origin", "main"], otherWorkDir);
+    git(["symbolic-ref", "HEAD", "refs/heads/main"], otherBareRepoPath);
+
+    const hubClonePath = join(root, "hub-mal-cible");
+    git(["clone", otherBareRepoPath, hubClonePath], root);
+
+    await expect(cloneOrPullHub(bareRepoPath, hubClonePath)).rejects.toThrow(/synapse:/);
+    // Refused before touching anything — the unrelated repo's content is untouched.
+    expect(existsSync(join(hubClonePath, "unrelated.md"))).toBe(true);
+    expect(existsSync(join(hubClonePath, "a.md"))).toBe(false);
+  }, 15_000);
 });

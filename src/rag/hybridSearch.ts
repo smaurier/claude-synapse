@@ -25,7 +25,7 @@
  * word", not silently ASCII-only.
  */
 
-import { loadCorpus } from "./corpus.js";
+import { loadHubCorpus } from "./corpus.js";
 import { searchHub } from "./searchHub.js";
 import { extractFrontmatter } from "../commands/brainLint.js";
 
@@ -96,7 +96,7 @@ export function applySupersession(results: HybridResult[], corpus: { path: strin
  * showing the same file twice.
  */
 export async function hybridSearchHub(hubClonePath: string, query: string, topK = 10): Promise<HybridResult[]> {
-  const corpus = loadCorpus(hubClonePath);
+  const corpus = loadHubCorpus(hubClonePath);
   const exactPaths = findExactMatches(corpus, query);
   const exactSet = new Set(exactPaths);
 

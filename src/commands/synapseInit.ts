@@ -32,8 +32,15 @@ export interface SynapseInitOptions {
   pluginDataDir: string;
   hubUrl: string;
   linkPath: string;
-  /** Override for tests / advanced setups; defaults to <pluginDataDir>/hub. */
+  /** Override for tests / advanced setups; defaults to <pluginDataDir>/hub.
+   *  Also how "adopt an existing directory as hub" works: pass the existing
+   *  clone's own path as BOTH hubClonePath and linkPath — cloneOrPullHub
+   *  detects the existing .git and pulls instead of cloning, and
+   *  ensureHubLink treats linking a location to itself as already
+   *  satisfied (see jonction.ts). */
   hubClonePath?: string;
+  /** See BootstrapOptions.corpusRoot — forwarded as-is. */
+  corpusRoot?: string;
 }
 
 export interface SynapseInitResult {
@@ -63,6 +70,7 @@ export async function runSynapseInit(opts: SynapseInitOptions): Promise<SynapseI
     hubClonePath,
     linkPath: opts.linkPath,
     machineId: hostname(),
+    ...(opts.corpusRoot !== undefined ? { corpusRoot: opts.corpusRoot } : {}),
     cloneOrPullHub,
     createHubLink: (hub, linkPath) => {
       link = ensureHubLink(hub, linkPath);

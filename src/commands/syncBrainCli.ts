@@ -10,6 +10,7 @@
 
 import { existsSync } from "node:fs";
 import { readLocalConfig, defaultLocalConfigPath } from "../config/config.js";
+import { ensureDependencies, resolvePluginRoot } from "../config/dependencies.js";
 import { syncBrain } from "./syncBrain.js";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -31,6 +32,8 @@ async function main(): Promise<void> {
   if (!existsSync(defaultLocalConfigPath(pluginDataDir))) {
     return; // not initialized yet — normal, same as refreshIndexCli
   }
+
+  ensureDependencies(resolvePluginRoot(import.meta.url));
 
   try {
     const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));

@@ -1,5 +1,8 @@
 node_modules/
-dist/
+# dist/ is intentionally COMMITTED (decided 24/08) — `claude plugin install`
+# is a plain `git clone`, no build step runs automatically (confirmed on two
+# real installs). Rebuild + commit dist/ as part of every release, same as
+# any git-distributed CLI tool without a package registry publish step.
 *.sqlite
 *.sqlite-journal
 .env

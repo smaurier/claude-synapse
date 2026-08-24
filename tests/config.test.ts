@@ -11,6 +11,7 @@ import {
   defaultLocalConfigPath,
   defaultHubClonePath,
   recordMachineSeen,
+  resolveCorpusRoot,
 } from "../src/config/config.js";
 
 let root: string;
@@ -53,6 +54,25 @@ describe("shared config (lives inside the hub, versioned, synced)", () => {
     mkdirSync(hubDir, { recursive: true });
     writeSharedConfig(hubDir, DEFAULT_SHARED_CONFIG);
     expect(existsSync(join(hubDir, ".synapse", "config.json"))).toBe(true);
+  });
+});
+
+// Ajouté 24/08 : "adopter un dossier existant comme hub" — le hub (là où vivent
+// .git, le verrou, .synapse/) et le corpus indexé par le RAG ne sont pas
+// toujours le même dossier (ex : le hub est la racine d'un repo qui contient
+// aussi de la doc/scripts, la vraie mémoire n'est qu'un sous-dossier).
+describe("resolveCorpusRoot", () => {
+  it("defaults to the hub root itself when corpusRoot is unset (unchanged behavior)", () => {
+    const hubDir = join(root, "hub");
+    mkdirSync(hubDir, { recursive: true });
+    expect(resolveCorpusRoot(hubDir)).toBe(hubDir);
+  });
+
+  it("resolves to a subdirectory of the hub when corpusRoot is configured", () => {
+    const hubDir = join(root, "hub");
+    mkdirSync(hubDir, { recursive: true });
+    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, corpusRoot: "memory" });
+    expect(resolveCorpusRoot(hubDir)).toBe(join(hubDir, "memory"));
   });
 });
 

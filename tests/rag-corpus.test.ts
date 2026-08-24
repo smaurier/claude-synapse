@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadCorpus } from "../src/rag/corpus.js";
+import { loadCorpus, loadHubCorpus } from "../src/rag/corpus.js";
+import { DEFAULT_SHARED_CONFIG, writeSharedConfig } from "../src/config/config.js";
 
 let root: string;
 
@@ -71,5 +72,30 @@ describe("loadCorpus", () => {
     writeFileSync(join(root, "notes.txt"), "rien ici", "utf8");
 
     expect(loadCorpus(root)).toEqual([]);
+  });
+});
+
+// Ajouté 24/08 : "adopter un dossier existant comme hub" — quand le hub est
+// une racine de repo contenant aussi de la doc/scripts non-mémoire, seul un
+// sous-dossier (typiquement "memory") doit être indexé par le RAG. C'est ce
+// point d'intégration précis (config -> chemin réellement scanné) que
+// searchHub.ts/hybridSearch.ts appellent désormais, pas loadCorpus() brut.
+describe("loadHubCorpus (corpusRoot-aware)", () => {
+  it("scans the whole hub when corpusRoot is unset (unchanged default behavior)", () => {
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "a.md"), "contenu a", "utf8");
+
+    expect(loadHubCorpus(root)).toEqual([{ path: "a.md", content: "contenu a" }]);
+  });
+
+  it("scans only the configured subdirectory, ignoring markdown outside it", () => {
+    mkdirSync(join(root, "memory"), { recursive: true });
+    writeFileSync(join(root, "memory", "vrai-souvenir.md"), "mémoire réelle", "utf8");
+    writeFileSync(join(root, "PARCOURS.md"), "pas de la mémoire", "utf8");
+    writeSharedConfig(root, { ...DEFAULT_SHARED_CONFIG, corpusRoot: "memory" });
+
+    const corpus = loadHubCorpus(root);
+
+    expect(corpus).toEqual([{ path: "vrai-souvenir.md", content: "mémoire réelle" }]);
   });
 });

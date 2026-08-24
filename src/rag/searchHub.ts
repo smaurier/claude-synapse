@@ -12,7 +12,7 @@
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { loadCorpus } from "./corpus.js";
+import { loadHubCorpus } from "./corpus.js";
 import { synapseSearch, rebuildIndexIfStale } from "./production.js";
 import { ensurePinnedEmbeddingModel } from "./embeddingProvider.js";
 import { VectorStore, type SearchResult } from "./store.js";
@@ -27,7 +27,7 @@ export async function searchHub(hubClonePath: string, query: string, topK = 10):
   ensurePinnedEmbeddingModel(hubClonePath);
   const store = openHubStore(hubClonePath);
   try {
-    const corpus = loadCorpus(hubClonePath);
+    const corpus = loadHubCorpus(hubClonePath);
     return await synapseSearch(store, corpus, query, topK);
   } finally {
     store.close();
@@ -41,7 +41,7 @@ export async function refreshHubIndex(hubClonePath: string): Promise<void> {
   ensurePinnedEmbeddingModel(hubClonePath);
   const store = openHubStore(hubClonePath);
   try {
-    const corpus = loadCorpus(hubClonePath);
+    const corpus = loadHubCorpus(hubClonePath);
     await rebuildIndexIfStale(store, corpus);
   } finally {
     store.close();

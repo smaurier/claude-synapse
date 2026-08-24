@@ -95,6 +95,48 @@ describe("bootstrap — order of operations", () => {
     expect(result.sharedConfig.lockTimeoutMinutes).toBe(42);
   });
 
+  it("applies a corpusRoot override on first bootstrap — the 'adopt an existing directory' path", async () => {
+    const cloneOrPullHub = vi.fn(async () => {
+      mkdirSync(hubClonePath, { recursive: true }); // fresh hub, no shared config yet
+    });
+
+    const result = await bootstrap({
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      localConfigPath,
+      hubClonePath,
+      linkPath,
+      machineId: "workstation-a",
+      corpusRoot: "memory",
+      cloneOrPullHub,
+      createHubLink: vi.fn(),
+      verifyLink: vi.fn(() => true),
+    });
+
+    expect(result.sharedConfig.corpusRoot).toBe("memory");
+  });
+
+  it("leaves an existing hub's corpusRoot untouched when no override is given", async () => {
+    const cloneOrPullHub = vi.fn(async () => {
+      mkdirSync(hubClonePath, { recursive: true });
+      writeSharedConfig(hubClonePath, { ...DEFAULT_SHARED_CONFIG, corpusRoot: "memory" });
+    });
+
+    const result = await bootstrap({
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      localConfigPath,
+      hubClonePath,
+      linkPath,
+      machineId: "workstation-b",
+      // no corpusRoot passed — a second machine re-running /synapse-init
+      // plain must not silently reset what the first machine configured.
+      cloneOrPullHub,
+      createHubLink: vi.fn(),
+      verifyLink: vi.fn(() => true),
+    });
+
+    expect(result.sharedConfig.corpusRoot).toBe("memory");
+  });
+
   it("acquires and releases the whole-repo lock around the shared-config write, leaving no lock behind", async () => {
     const cloneOrPullHub = vi.fn(async () => {
       mkdirSync(hubClonePath, { recursive: true });

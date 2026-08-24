@@ -187,6 +187,19 @@ export interface EnsureLinkResult {
  * purpose.
  */
 export function ensureHubLink(hubClonePath: string, linkPath: string): EnsureLinkResult {
+  // Self-hosting case: the anchor project's real content already lives
+  // directly AT the hub location (an existing repo adopted as hub rather
+  // than cloned elsewhere) — there is nothing to link, the location already
+  // IS the hub. Must be checked before inspectLink(): a real (non-symlink)
+  // directory at linkPath reads as "missing" there, which would otherwise
+  // send this straight into backupExisting() — renaming the hub's own only
+  // copy out from under itself before "recreating" a link back at the same
+  // now-empty path. Comparison normalized the same way inspectLink compares
+  // targets (case-insensitive on win32).
+  if (normalizeForComparison(linkPath) === normalizeForComparison(hubClonePath)) {
+    return { action: "already-ok" };
+  }
+
   const state = inspectLink(linkPath, hubClonePath);
 
   if (state === "ok") {

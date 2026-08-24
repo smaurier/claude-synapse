@@ -1,7 +1,15 @@
 /**
  * The actual process entrypoint invoked by skills/synapse-init/SKILL.md:
  *   node "${CLAUDE_PLUGIN_ROOT}/dist/commands/synapseInitCli.js" \
- *     "${CLAUDE_PLUGIN_DATA}" <hubUrl> <linkPath>
+ *     "${CLAUDE_PLUGIN_DATA}" <hubUrl> <linkPath> [hubClonePath] [corpusRoot]
+ *
+ * The two trailing args are optional and only needed for the "adopt an
+ * existing directory as hub" path (added 24/08): pass the existing clone's
+ * own path as hubClonePath (same value as linkPath, typically) so
+ * cloneOrPullHub pulls instead of cloning and ensureHubLink treats it as
+ * self-hosting (see jonction.ts / synapseInit.ts doc comments) — and
+ * corpusRoot when the hub root also holds non-memory material (docs,
+ * scripts) that indexing shouldn't see.
  *
  * Deliberately thin, same rationale as the other *Cli.ts entrypoints.
  */
@@ -16,16 +24,22 @@ const LINK_ACTION_LABELS: Record<string, string> = {
 };
 
 async function main(): Promise<void> {
-  const [pluginDataDir, hubUrl, linkPath] = process.argv.slice(2);
+  const [pluginDataDir, hubUrl, linkPath, hubClonePath, corpusRoot] = process.argv.slice(2);
 
   if (!pluginDataDir || !hubUrl || !linkPath) {
-    console.error("Usage: synapseInitCli <pluginDataDir> <hubUrl> <linkPath>");
+    console.error("Usage: synapseInitCli <pluginDataDir> <hubUrl> <linkPath> [hubClonePath] [corpusRoot]");
     process.exitCode = 1;
     return;
   }
 
   try {
-    const result = await runSynapseInit({ pluginDataDir, hubUrl, linkPath });
+    const result = await runSynapseInit({
+      pluginDataDir,
+      hubUrl,
+      linkPath,
+      ...(hubClonePath ? { hubClonePath } : {}),
+      ...(corpusRoot ? { corpusRoot } : {}),
+    });
     console.log(`synapse: hub prêt dans "${result.hubClonePath}".`);
     console.log(`synapse: ${LINK_ACTION_LABELS[result.link.action] ?? result.link.action}`);
     if (result.link.backupPath) {

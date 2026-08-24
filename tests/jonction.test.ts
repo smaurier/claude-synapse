@@ -188,4 +188,21 @@ describe("ensureHubLink — idempotent interactive reconciliation", () => {
     expect(existsSync(join(result.backupPath!, "local-note.md"))).toBe(true);
     expect(inspectLink(linkPath, hub)).toBe("ok");
   });
+
+  it("treats linkPath === hubClonePath as already satisfied — self-hosting hub, no filesystem operation", () => {
+    // The "adopt an existing directory as the hub" case: the anchor project's
+    // memory already lives directly at the hub location (no link needed for
+    // itself). Without this guard, inspectLink would see real content at
+    // linkPath (not a symlink) -> "missing" -> backupExisting() would rename
+    // the hub's OWN content out from under itself before "recreating" a link
+    // back at the same now-empty path. That would destroy the single real
+    // copy the whole jonction thesis exists to protect.
+    writeFileSync(join(hub, "real-memory.md"), "the one real copy");
+
+    const result = ensureHubLink(hub, hub);
+
+    expect(result).toEqual({ action: "already-ok" });
+    expect(existsSync(join(hub, "real-memory.md"))).toBe(true);
+    expect(readdirSync(hub)).toEqual(["real-memory.md"]); // no .bak-* sibling created
+  });
 });
