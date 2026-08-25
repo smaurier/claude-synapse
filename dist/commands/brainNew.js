@@ -9,6 +9,7 @@
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolveCorpusRoot } from "../config/config.js";
 export const MEMORY_TYPES = ["user", "feedback", "project", "reference"];
 function todayIso() {
     return new Date().toISOString().slice(0, 10);
@@ -29,7 +30,12 @@ export function createMemoryFile(hubClonePath, type, name) {
     if (!slug) {
         throw new Error(`synapse: nom "${name}" ne produit aucun slug valide.`);
     }
-    const path = join(hubClonePath, `${slug}.md`);
+    // A hub whose SharedConfig.corpusRoot narrows the RAG scan to a
+    // subdirectory (e.g. non-memory material at the hub root) must get new
+    // memories written *inside* that subdirectory — otherwise they're
+    // invisible to search/lint despite looking like they were created fine.
+    const corpusRoot = resolveCorpusRoot(hubClonePath);
+    const path = join(corpusRoot, `${slug}.md`);
     if (existsSync(path)) {
         throw new Error(`synapse: "${path}" existe déjà — choisir un autre nom ou éditer le fichier existant.`);
     }
@@ -43,7 +49,7 @@ metadata:
 
 TODO
 `;
-    mkdirSync(hubClonePath, { recursive: true });
+    mkdirSync(corpusRoot, { recursive: true });
     writeFileSync(path, content, "utf8");
     return { path, slug };
 }

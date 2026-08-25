@@ -30,6 +30,27 @@ export async function runGit(args, cwd) {
 function normalizeRemote(url) {
     return url.replace(/\/+$/, "").replace(/\.git$/, "");
 }
+/** git-crypt is entirely optional and unrelated to Synapse itself — most
+ *  hubs won't use it. Gated on `.git-crypt/` existing so the common
+ *  (non-encrypted) case never even shells out to a binary that may not be
+ *  installed. When it IS present, a failed unlock (no key added as
+ *  collaborator yet on this machine, git-crypt missing, ...) must not block
+ *  the clone/pull that already succeeded — it just leaves the working tree
+ *  exactly as encrypted/plaintext as it already was, same as before this
+ *  function existed. Exported for direct testing. */
+export async function unlockGitCryptIfPresent(hubClonePath) {
+    if (!existsSync(join(hubClonePath, ".git-crypt")))
+        return;
+    try {
+        await execFileAsync("git-crypt", ["unlock"], { cwd: hubClonePath });
+    }
+    catch (err) {
+        const cause = err instanceof Error ? err.message : String(err);
+        console.warn(`synapse: "${hubClonePath}" est un hub git-crypt et n'a pas pu être déverrouillé automatiquement.\n` +
+            `Diagnostic : ${cause}\nSi ce n'est pas attendu, lancer "git-crypt unlock" à la main dans ce dossier ` +
+            `(clé GPG manquante sur cette machine, ou pas encore ajoutée comme collaborateur).`);
+    }
+}
 export async function cloneOrPullHub(hubUrl, hubClonePath) {
     const alreadyCloned = existsSync(join(hubClonePath, ".git"));
     try {
@@ -58,6 +79,7 @@ export async function cloneOrPullHub(hubUrl, hubClonePath) {
         else {
             await execFileAsync("git", ["clone", hubUrl, hubClonePath]);
         }
+        await unlockGitCryptIfPresent(hubClonePath);
     }
     catch (err) {
         const cause = err instanceof Error ? err.message : String(err);

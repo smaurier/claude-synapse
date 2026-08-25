@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemoryFile } from "../src/commands/brainNew.js";
+import { writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
 
 let hubDir: string;
 
@@ -45,5 +46,24 @@ describe("createMemoryFile", () => {
     mkdirSync(join(hubDir, "sous-dossier"), { recursive: true });
     const result = createMemoryFile(join(hubDir, "sous-dossier"), "user", "test");
     expect(result.path).toBe(join(hubDir, "sous-dossier", "test.md"));
+  });
+
+  it("respects a narrowed corpusRoot in the hub's shared config, instead of always writing at hub root", () => {
+    // Real-world trigger: a hub whose SharedConfig.corpusRoot narrows the RAG
+    // scan to a subdirectory (e.g. "memory", alongside non-memory material
+    // like docs/progress files at the hub root) — new memories must land
+    // inside that subdirectory, or they're invisible to search/lint alike.
+    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, corpusRoot: "memory" });
+    mkdirSync(join(hubDir, "memory"), { recursive: true });
+
+    const result = createMemoryFile(hubDir, "reference", "Repo privé");
+
+    expect(result.path).toBe(join(hubDir, "memory", "repo-prive.md"));
+  });
+
+  it("still writes at hub root when corpusRoot is the default '.'", () => {
+    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, corpusRoot: "." });
+    const result = createMemoryFile(hubDir, "reference", "Repo privé");
+    expect(result.path).toBe(join(hubDir, "repo-prive.md"));
   });
 });

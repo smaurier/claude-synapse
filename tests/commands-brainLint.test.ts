@@ -35,6 +35,18 @@ describe("extractFrontmatter", () => {
   it("returns null when there's no frontmatter block", () => {
     expect(extractFrontmatter("juste du texte")).toBeNull();
   });
+
+  it("parses frontmatter even when the file starts with a UTF-8 BOM", () => {
+    // Real-world trigger: files saved by some Windows editors/tools carry a
+    // leading BOM (EF BB BF / U+FEFF) before the first byte of content. The
+    // frontmatter regex anchors on `^---`, so an unstripped BOM silently
+    // makes the file invisible to every check that depends on this parser
+    // (WIP count, expires warnings, type detection) — not just this one.
+    const withBom = "﻿" + VALID_PROJECT;
+    const fm = extractFrontmatter(withBom);
+    expect(fm?.fields.name).toBe("exemple-projet");
+    expect(fm?.fields["metadata.type"]).toBe("project");
+  });
 });
 
 describe("lintFile", () => {
@@ -374,6 +386,27 @@ describe("checkWipLimit", () => {
       projectFile("vieux.md", "2020-01-01"), // long expired, shouldn't count
     ];
     expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+  });
+
+  it("does not count `expires: closed` toward the limit", () => {
+    // Real-world trigger: `new Date("closed")` is Invalid Date, and an
+    // unparseable expiry used to default to "active" — the opposite of what
+    // writing "closed" means. Only this exact literal gets the alias; any
+    // other unparseable string still defaults to active (a typo'd date
+    // shouldn't silently vanish from the count).
+    const files = [
+      ...Array.from({ length: 5 }, (_, i) => projectFile(`p${i}.md`, "ongoing")),
+      projectFile("clos.md", "closed"),
+    ];
+    expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+  });
+
+  it("still counts a genuinely unparseable (non-'closed') expiry as active", () => {
+    const files = [
+      ...Array.from({ length: 4 }, (_, i) => projectFile(`p${i}.md`, "ongoing")),
+      projectFile("typo.md", "pas-une-date"),
+    ];
+    expect(checkWipLimit(files, new Date("2026-08-14"), 4)).toHaveLength(1);
   });
 
   it("ignores non-project memories entirely", () => {

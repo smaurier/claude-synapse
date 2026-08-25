@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { cloneOrPullHub } from "../src/config/git.js";
+import { cloneOrPullHub, unlockGitCryptIfPresent } from "../src/config/git.js";
 
 // Real git, real local "remote" (a bare repo) — no mocking of git itself,
 // consistent with how this codebase tests real fs/exec behavior elsewhere
@@ -102,5 +102,104 @@ describe("cloneOrPullHub", () => {
     // Refused before touching anything — the unrelated repo's content is untouched.
     expect(existsSync(join(hubClonePath, "unrelated.md"))).toBe(true);
     expect(existsSync(join(hubClonePath, "a.md"))).toBe(false);
+  }, 15_000);
+});
+
+// Real gpg + real git-crypt, isolated GPG keyring per test (never touches the
+// machine's real keyring) — same "no mocking" bias as the rest of this file.
+// GNUPGHOME needs a unix-style path (`/c/Users/...`) even though this test
+// runs under plain Node on Windows: the git-crypt/gpg binaries on this
+// platform are MSYS-built and misparse a native `C:\...` GNUPGHOME when
+// there's no MSYS shell in the process chain to translate it for them —
+// purely a path-format quirk of these binaries, unrelated to the feature
+// under test. Production code never sets GNUPGHOME at all, so real usage
+// (default keyring) is unaffected.
+function toGpgHomePath(p: string): string {
+  return "/" + p[0]!.toLowerCase() + p.slice(2).replaceAll("\\", "/");
+}
+
+describe("unlockGitCryptIfPresent", () => {
+  let gcRoot: string;
+  let gnupgEnvBackup: string | undefined;
+
+  beforeEach(() => {
+    gcRoot = mkdtempSync(join(tmpdir(), "synapse-gitcrypt-"));
+    gnupgEnvBackup = process.env.GNUPGHOME;
+    const gnupgHome = join(gcRoot, "gnupg");
+    mkdirSync(gnupgHome, { recursive: true });
+    process.env.GNUPGHOME = toGpgHomePath(gnupgHome);
+    execFileSync(
+      "gpg",
+      [
+        "--batch",
+        "--gen-key",
+        (() => {
+          const p = join(gcRoot, "keyparams");
+          writeFileSync(
+            p,
+            "%no-protection\nKey-Type: RSA\nKey-Length: 2048\nName-Real: Test Synapse\n" +
+              "Name-Email: test@synapse.local\nExpire-Date: 0\n%commit\n",
+          );
+          return p;
+        })(),
+      ],
+      { stdio: "pipe" },
+    );
+  });
+
+  afterEach(() => {
+    if (gnupgEnvBackup === undefined) delete process.env.GNUPGHOME;
+    else process.env.GNUPGHOME = gnupgEnvBackup;
+    rmSync(gcRoot, { recursive: true, force: true });
+  });
+
+  function seedGitCryptRepo(): string {
+    const seed = join(gcRoot, "seed");
+    mkdirSync(seed, { recursive: true });
+    git(["init", "-q", "-b", "main"], seed);
+    git(["config", "user.email", "test@example.com"], seed);
+    git(["config", "user.name", "Test"], seed);
+    execFileSync("git-crypt", ["init"], { cwd: seed, stdio: "pipe" });
+    writeFileSync(join(seed, ".gitattributes"), "secret.md filter=git-crypt diff=git-crypt\n");
+    writeFileSync(join(seed, "secret.md"), "contenu secret\n");
+    execFileSync("git-crypt", ["add-gpg-user", "--trusted", "test@synapse.local"], { cwd: seed, stdio: "pipe" });
+    git(["add", "-A"], seed);
+    git(["commit", "-q", "-m", "seed"], seed);
+    return seed;
+  }
+
+  it("does nothing on a plain (non-git-crypt) directory — no throw, no-op", async () => {
+    const plain = join(gcRoot, "plain");
+    mkdirSync(plain, { recursive: true });
+    await expect(unlockGitCryptIfPresent(plain)).resolves.toBeUndefined();
+  });
+
+  it("decrypts a git-crypt clone when the machine already has the collaborator key", async () => {
+    const seed = seedGitCryptRepo();
+    const clone = join(gcRoot, "clone");
+    git(["clone", "-q", seed, clone], gcRoot);
+    expect(readFileSync(join(clone, "secret.md"), "latin1").charCodeAt(0)).toBe(0); // still encrypted
+
+    await unlockGitCryptIfPresent(clone);
+
+    expect(readFileSync(join(clone, "secret.md"), "utf8")).toBe("contenu secret\n");
+  }, 15_000);
+
+  it("is safe to call twice on an already-unlocked clone", async () => {
+    const seed = seedGitCryptRepo();
+    const clone = join(gcRoot, "clone2");
+    git(["clone", "-q", seed, clone], gcRoot);
+
+    await unlockGitCryptIfPresent(clone);
+    await expect(unlockGitCryptIfPresent(clone)).resolves.toBeUndefined();
+  }, 15_000);
+
+  it("cloneOrPullHub itself ends with a readable (auto-unlocked) working tree", async () => {
+    const seed = seedGitCryptRepo();
+    const clone = join(gcRoot, "clone-via-cloneOrPullHub");
+
+    await cloneOrPullHub(seed, clone);
+
+    expect(readFileSync(join(clone, "secret.md"), "utf8")).toBe("contenu secret\n");
   }, 15_000);
 });

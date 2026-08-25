@@ -10,7 +10,12 @@
 import { cosineSimilarity } from "../rag/store.js";
 import { chunkFile } from "../rag/chunk.js";
 export function extractFrontmatter(content) {
-    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    // Strip a leading UTF-8 BOM (U+FEFF) if present — some Windows editors/tools
+    // write one, and it sits before the very first `-` the regex anchors on.
+    // Left unstripped, the match below silently fails and this file becomes
+    // invisible to every check that depends on this parser, not just this one.
+    const withoutBom = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+    const match = withoutBom.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!match)
         return null;
     const fields = {};
@@ -112,6 +117,8 @@ export function checkWipLimit(files, today = new Date(), limit = DEFAULT_WIP_LIM
             return true; // no expiry set at all — still counts as active
         if (expires === "ongoing")
             return true;
+        if (expires === "closed")
+            return false; // explicit status alias, not a date
         const expiryDate = new Date(expires);
         return Number.isNaN(expiryDate.getTime()) || expiryDate >= today;
     });
