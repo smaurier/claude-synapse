@@ -64,11 +64,11 @@ export async function brainSearch(store, corpus, embed, query, topK = 10, chunkF
     for (const r of chunkResults) {
         const path = sourcePathFromChunkId(r.path);
         const existing = bestPerFile.get(path);
-        if (existing === undefined || r.score > existing)
-            bestPerFile.set(path, r.score);
+        if (existing === undefined || r.score > existing.score)
+            bestPerFile.set(path, { score: r.score, chunkId: r.path });
     }
     return [...bestPerFile.entries()]
-        .map(([path, score]) => ({ path, score }))
+        .map(([path, { score, chunkId }]) => ({ path, score, chunkId }))
         .sort((a, b) => b.score - a.score)
         .slice(0, topK);
 }

@@ -14,6 +14,13 @@
 export interface SearchResult {
     path: string;
     score: number;
+    /** Set only on brainSearch()'s collapsed-to-file-level results (never on
+     *  the raw chunk-granularity results this same type is used for inside
+     *  VectorStore.search()) — the id of the specific chunk that produced
+     *  this file's score, so callers that need the actual matching text
+     *  (not just "this file is relevant") can fetch just that chunk instead
+     *  of re-scanning the whole file. See search.ts's brainSearch(). */
+    chunkId?: string;
 }
 export declare function cosineSimilarity(a: number[], b: number[]): number;
 export declare class VectorStore {

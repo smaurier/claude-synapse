@@ -48,6 +48,11 @@ export interface HybridResult {
    *  actually exists in the corpus — the path of the version that replaces
    *  it. Never removes the result; see applySupersession(). */
   supersededBy?: string;
+  /** Propagated from SearchResult (search.ts) on semantic matches — the id
+   *  of the specific chunk that scored, not the whole file. Undefined on
+   *  exact matches (findExactMatches works at file granularity, there's no
+   *  single "winning chunk" to name). */
+  chunkId?: string;
 }
 
 /**

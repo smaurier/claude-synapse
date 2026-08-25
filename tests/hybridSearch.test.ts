@@ -86,6 +86,12 @@ describe("applySupersession", () => {
     expect(applySupersession(results, corpus)).toEqual(results);
   });
 
+  it("preserves chunkId through supersession reordering (backlog #28 follow-up)", () => {
+    const corpus = [{ path: "a.md", content: PLAIN }];
+    const results: HybridResult[] = [{ path: "a.md", score: 1, matchType: "semantic", chunkId: "a.md#2" }];
+    expect(applySupersession(results, corpus)[0]?.chunkId).toBe("a.md#2");
+  });
+
   it("still annotates a superseded result even when its replacement isn't among the results to reorder against", () => {
     const corpus = [
       { path: "old.md", content: OLD },

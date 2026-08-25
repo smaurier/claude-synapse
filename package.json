@@ -1,6 +1,6 @@
 {
   "name": "claude-synapse",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Don't sync memory across machines — link it. A Claude Code plugin for a single memory hub referenced by junction/symlink from every machine and every project, never copied.",
   "type": "module",
   "license": "MIT",

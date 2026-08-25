@@ -21,9 +21,24 @@
  * semantic model might miss on short or domain-specific terms.
  */
 import { type HybridResult } from "../rag/hybridSearch.js";
-export declare function hasNegationMarker(content: string): boolean;
+export declare function hasStrictNegationMarker(content: string): boolean;
+/** Only meaningful when checked against a chunk-scoped passage, not a whole
+ *  file — see the module doc. */
+export declare function hasBroadNegationMarker(content: string): boolean;
+/** Isolates just the chunk that actually matched (chunkId, from
+ *  hybridSearchHub — see search.ts's brainSearch), instead of scanning an
+ *  entire file. Re-chunks at call time rather than persisting chunk text in
+ *  the vector store (chunkFile is a pure, deterministic function of
+ *  path+content — cheap to recompute, and avoids growing the store's
+ *  on-disk format for a single caller's need). Falls back to the whole
+ *  content when there's no chunkId (exact matches) or it doesn't match any
+ *  real chunk (defensive — should not normally happen). */
+export declare function extractChunkText(sourcePath: string, content: string, chunkId: string | undefined): string;
 /** Checked against the raw candidate set (before filterAndFormatResults'
- *  MIN_SCORE gate) — deliberately not the same input, see module doc. */
+ *  MIN_SCORE gate) — deliberately not the same input, see module doc.
+ *  Scoped to each result's matching chunk (via chunkId), not the whole
+ *  file — see extractChunkText and the module doc's note on why a
+ *  whole-file scan turned out to carry no signal on a real hub. */
 export declare function formatContradictionWarnings(results: HybridResult[], corpusByPath: Map<string, string>): string | null;
 export declare function shouldSkip(prompt: string): boolean;
 export declare function filterAndFormatResults(results: HybridResult[]): string | null;

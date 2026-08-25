@@ -131,4 +131,37 @@ describe("brainSearch", () => {
     const bigHits = results.filter((r) => r.path === "big.md");
     expect(bigHits).toHaveLength(1); // never "big.md#0", "big.md#1"... in the results
   });
+
+  // Backlog #28 follow-up (24/08 night) — chunk-level negation scoping.
+  // Callers downstream (proactiveRecall's contradiction detector) need to
+  // know WHICH chunk of a long file actually matched, not just that the
+  // file matched — checking a whole 140KB file for negation language is
+  // what produced 9-10/10 false positives in the first real test. The
+  // collapsed-to-file-level result must still carry the winning chunk's id.
+  it("carries the id of the winning chunk on each collapsed result", async () => {
+    const embed = vi.fn(fakeEmbed);
+    // "aaa" and "zzz" land in different fakeEmbed buckets — a query for
+    // "zzz" should score the zzz-heavy chunk higher than the aaa-heavy one.
+    const content = "aaa".repeat(300) + "zzz".repeat(300); // >500 chars: definitely multi-chunk
+    const corpus = [{ path: "big.md", content }];
+
+    const results = await brainSearch(store, corpus, embed, "zzz", 1);
+
+    expect(results[0]?.path).toBe("big.md");
+    expect(results[0]?.chunkId).toBeDefined();
+    expect(results[0]?.chunkId).toMatch(/^big\.md#\d+$/);
+    // The winning chunk should be a LATER one — the zzz content sits after
+    // the first ~440 chars of pure "aaa", not in chunk #0.
+    const chunkIndex = Number(results[0]!.chunkId!.split("#")[1]);
+    expect(chunkIndex).toBeGreaterThan(0);
+  });
+
+  it("a short (single-chunk) file's chunkId is just its own path", async () => {
+    const embed = vi.fn(fakeEmbed);
+    const corpus = [{ path: "small.md", content: "bbb" }];
+
+    const results = await brainSearch(store, corpus, embed, "bbb", 1);
+
+    expect(results[0]?.chunkId).toBe("small.md");
+  });
 });

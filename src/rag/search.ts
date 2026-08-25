@@ -87,15 +87,15 @@ export async function brainSearch(
   // per file, we still have up to topK distinct files to return.
   const chunkResults = store.search(await embed(query), topK * 5);
 
-  const bestPerFile = new Map<string, number>();
+  const bestPerFile = new Map<string, { score: number; chunkId: string }>();
   for (const r of chunkResults) {
     const path = sourcePathFromChunkId(r.path);
     const existing = bestPerFile.get(path);
-    if (existing === undefined || r.score > existing) bestPerFile.set(path, r.score);
+    if (existing === undefined || r.score > existing.score) bestPerFile.set(path, { score: r.score, chunkId: r.path });
   }
 
   return [...bestPerFile.entries()]
-    .map(([path, score]) => ({ path, score }))
+    .map(([path, { score, chunkId }]) => ({ path, score, chunkId }))
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 }

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { shouldSkip, filterAndFormatResults, hasNegationMarker, formatContradictionWarnings } from "../src/commands/proactiveRecall.js";
+import {
+  shouldSkip,
+  filterAndFormatResults,
+  hasStrictNegationMarker,
+  hasBroadNegationMarker,
+  formatContradictionWarnings,
+  extractChunkText,
+} from "../src/commands/proactiveRecall.js";
 import type { HybridResult } from "../src/rag/hybridSearch.js";
 
 // runProactiveRecall requires a real hub on disk; only the two pure helpers
@@ -79,38 +86,66 @@ describe("filterAndFormatResults", () => {
 // it flags any candidate result whose *content* carries a negation/
 // prohibition marker, so it renders distinctly from ordinary recalled
 // context instead of blending into a list that's easy to skim past.
-describe("hasNegationMarker", () => {
+// Two tiers — see the module doc on proactiveRecall.ts for the full
+// rationale (STRICT is safe at whole-file scope; BROAD needs chunk-scoping
+// to avoid the 9-10/10 false-positive rate measured against a real hub).
+describe("hasStrictNegationMarker", () => {
   it("detects the ⛔ convention marker", () => {
-    expect(hasNegationMarker("⛔ Ne pas postuler avant octobre.")).toBe(true);
+    expect(hasStrictNegationMarker("⛔ Ne pas postuler avant octobre.")).toBe(true);
   });
 
   it("detects 'interdit', even without ⛔", () => {
-    expect(hasNegationMarker("C'est strictement interdit de pousser ce code.")).toBe(true);
+    expect(hasStrictNegationMarker("C'est strictement interdit de pousser ce code.")).toBe(true);
   });
 
   it("does NOT flag ordinary French negation on its own — calibrated against a real hub", () => {
-    // 24/08: a broader marker list ("ne pas", "pas de", "jamais", "attendre")
-    // was tried first and fired on 9-10 of 10 real candidate files in a real
-    // test — those constructions are too common in ordinary prose to carry
-    // any signal at file granularity. Narrowed to what actually
-    // discriminated on that same data. See the module doc for the chunk-
-    // level follow-up that would let the broader list work safely.
-    expect(hasNegationMarker("Il ne faut pas relancer avant septembre.")).toBe(false);
-    expect(hasNegationMarker("Pas de scan d'offres avant le 23/10.")).toBe(false);
-    expect(hasNegationMarker("Jamais de suivi supplémentaire après la relance.")).toBe(false);
-    expect(hasNegationMarker("Attendre le retour de l'avocat avant d'agir.")).toBe(false);
+    // 24/08: tried as the only tier first, fired on 9-10 of 10 real
+    // candidate files in a real test — too common in ordinary prose to
+    // carry any signal at whole-file scope. These phrasings are still
+    // caught, but only via hasBroadNegationMarker scoped to one chunk.
+    expect(hasStrictNegationMarker("Il ne faut pas relancer avant septembre.")).toBe(false);
+    expect(hasStrictNegationMarker("Pas de scan d'offres avant le 23/10.")).toBe(false);
+    expect(hasStrictNegationMarker("Jamais de suivi supplémentaire après la relance.")).toBe(false);
+    expect(hasStrictNegationMarker("Attendre le retour de l'avocat avant d'agir.")).toBe(false);
   });
 
   it("does not flag ordinary text with no prohibition language at all", () => {
-    expect(hasNegationMarker("Le rendez-vous Alstom est prévu mardi à 14h.")).toBe(false);
+    expect(hasStrictNegationMarker("Le rendez-vous Alstom est prévu mardi à 14h.")).toBe(false);
   });
 
   it("is case-insensitive", () => {
-    expect(hasNegationMarker("STRICTEMENT INTERDIT avant la certif.")).toBe(true);
+    expect(hasStrictNegationMarker("STRICTEMENT INTERDIT avant la certif.")).toBe(true);
+  });
+});
+
+describe("hasBroadNegationMarker", () => {
+  it("catches the phrasings STRICT deliberately misses — only meant to be called on a scoped chunk, not a whole file", () => {
+    expect(hasBroadNegationMarker("Il ne faut pas relancer avant septembre.")).toBe(true);
+    expect(hasBroadNegationMarker("Pas de scan d'offres avant le 23/10.")).toBe(true);
+    expect(hasBroadNegationMarker("Jamais de suivi supplémentaire après la relance.")).toBe(true);
+    expect(hasBroadNegationMarker("Attendre le retour de l'avocat avant d'agir.")).toBe(true);
   });
 
-  it("returns false for content with no negation language at all", () => {
-    expect(hasNegationMarker("Le rendez-vous est prévu mardi à 14h.")).toBe(false);
+  it("does not flag ordinary text with no negation language at all", () => {
+    expect(hasBroadNegationMarker("Le rendez-vous Alstom est prévu mardi à 14h.")).toBe(false);
+  });
+});
+
+describe("extractChunkText", () => {
+  it("returns the whole content when chunkId is undefined (exact matches, short files)", () => {
+    expect(extractChunkText("a.md", "contenu court", undefined)).toBe("contenu court");
+  });
+
+  it("returns just the matching chunk's text for a long, multi-chunk file", () => {
+    const content = "a".repeat(300) + "z".repeat(300); // >500 chars, chunked
+    const wholeFileText = extractChunkText("big.md", content, undefined);
+    const laterChunkText = extractChunkText("big.md", content, "big.md#1");
+    expect(laterChunkText.length).toBeLessThan(wholeFileText.length);
+    expect(laterChunkText).toContain("z");
+  });
+
+  it("falls back to the whole content if the chunkId doesn't match any real chunk (defensive)", () => {
+    expect(extractChunkText("a.md", "contenu", "a.md#99")).toBe("contenu");
   });
 });
 
@@ -152,5 +187,33 @@ describe("formatContradictionWarnings", () => {
     ]);
     const out = formatContradictionWarnings(results, corpus);
     expect(out).toBeNull();
+  });
+
+  it("a BROAD-only marker elsewhere in a long file (outside the matching chunk) does NOT leak in — the concrete fix for the 9-10/10 false-positive rate found 24/08", () => {
+    // "jamais" is BROAD-tier only (not STRICT), so this specifically
+    // exercises chunk-scoping — a STRICT marker (⛔/interdit) would flag
+    // regardless of chunk, by design (see module doc).
+    const relevantChunk = "z".repeat(300); // no marker here — this is what actually matched the query
+    const content = "jamais faire ça".padEnd(300, "a") + relevantChunk; // marker sits in chunk #0, query matched chunk #1
+    const results: HybridResult[] = [{ path: "big.md", score: 0.9, matchType: "semantic", chunkId: "big.md#1" }];
+    const corpus = new Map([["big.md", content]]);
+    expect(formatContradictionWarnings(results, corpus)).toBeNull();
+  });
+
+  it("still flags a BROAD marker when it IS inside the actually-matching chunk", () => {
+    // chunkFile: 500-char windows, 440-char stride — chunk #0 covers [0,500),
+    // chunk #1 covers [440, ...). Starting the marker at char 520 keeps it
+    // out of chunk #0 entirely while landing inside chunk #1.
+    const content = "a".repeat(519) + " jamais faire ça".padEnd(201, "z"); // leading space: real word boundary before "jamais"
+    const results: HybridResult[] = [{ path: "big.md", score: 0.9, matchType: "semantic", chunkId: "big.md#1" }];
+    const corpus = new Map([["big.md", content]]);
+    expect(formatContradictionWarnings(results, corpus)).toContain("big.md");
+  });
+
+  it("a STRICT marker (⛔/interdit) flags regardless of which chunk matched — whole-file safety net, deliberately not chunk-scoped", () => {
+    const content = "⛔ interdit ceci".padEnd(300, "a") + "z".repeat(300);
+    const results: HybridResult[] = [{ path: "big.md", score: 0.9, matchType: "semantic", chunkId: "big.md#1" }];
+    const corpus = new Map([["big.md", content]]);
+    expect(formatContradictionWarnings(results, corpus)).toContain("big.md");
   });
 });
