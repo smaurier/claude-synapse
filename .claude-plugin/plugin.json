@@ -1,6 +1,6 @@
 {
   "name": "synapse",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Don't sync memory across machines — link it. A single memory hub referenced by junction/symlink from every machine and every project, never copied.",
   "author": { "name": "smaurier" },
   "license": "MIT",

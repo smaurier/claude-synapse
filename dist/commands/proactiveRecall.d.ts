@@ -21,6 +21,10 @@
  * semantic model might miss on short or domain-specific terms.
  */
 import { type HybridResult } from "../rag/hybridSearch.js";
+export declare function hasNegationMarker(content: string): boolean;
+/** Checked against the raw candidate set (before filterAndFormatResults'
+ *  MIN_SCORE gate) — deliberately not the same input, see module doc. */
+export declare function formatContradictionWarnings(results: HybridResult[], corpusByPath: Map<string, string>): string | null;
 export declare function shouldSkip(prompt: string): boolean;
 export declare function filterAndFormatResults(results: HybridResult[]): string | null;
 export declare function runProactiveRecall(pluginDataDir: string, prompt: string): Promise<Record<string, string>>;
