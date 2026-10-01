@@ -31,11 +31,11 @@ pour lister les dépôts à surveiller :
 ```json
 {
   "explicit": [
-    { "name": "rgaa-private", "path": "C:/Users/sylva/Documents/projects/rgaa-formation" },
-    { "name": "brain",        "path": "C:/Users/sylva/Documents/projects/brain" }
+    { "name": "mon-projet",  "path": "C:/Users/exemple/Documents/projects/dossier-du-projet" },
+    { "name": "brain",       "path": "C:/Users/exemple/Documents/projects/brain" }
   ],
   "scanPaths": [
-    "C:/Users/sylva/Documents/projects"
+    "C:/Users/exemple/Documents/projects"
   ],
   "fromMemory": false,
   "blacklist": ["archived-repo"]

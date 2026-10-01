@@ -29,14 +29,37 @@ const PATTERNS: PersonalDataPattern[] = [
   // so this catches any maintainer's machine-specific path generically. The
   // separator uses [/\\]+ because real Windows source writes escaped double
   // backslash ("C:\\Users\\...") — a single-char class would miss that.
-  { name: "hardcoded Windows path", regex: /C:[/\\]+Users[/\\]+\w+[/\\]+/i },
+  { name: "hardcoded Windows path", regex: /C:[/\\]+Users[/\\]+(\w+)[/\\]+/i },
   // Same for POSIX-style absolute home paths (/home/<user>/ or /Users/<user>/).
-  { name: "hardcoded POSIX path", regex: /\/(?:home|Users)\/\w+\//i },
+  { name: "hardcoded POSIX path", regex: /\/(?:home|Users)\/(\w+)\//i },
   // Maintainer-specific patterns (employer email domain, first name, machine
   // usernames, etc.) are intentionally absent here — they belong in a local
   // config or CI secret, never committed to the public repo. Add them in your
   // own fork's local-config.json or as a separate gitignored deny-list.
 ];
+
+/**
+ * Noms d'utilisateur qui sont des PLACEHOLDERS de documentation, pas des
+ * identités réelles — ajouté 01/10/2026.
+ *
+ * Les motifs ci-dessus visent, selon leur propre commentaire, les chemins
+ * « machine-specific » du mainteneur. Un fichier qui DOCUMENTE un chemin
+ * Windows (skills/synapse-sync-status/SKILL.md) ou un test qui en fabrique
+ * un n'a pas d'autre choix que d'écrire un exemple : sans cette liste, le
+ * scan rendait impossible de documenter la chose même que le projet
+ * manipule, et produisait 10 faux positifs sur 11 détections (mesuré le
+ * 01/10 — la 11e était une vraie fuite, le nom d'utilisateur réel du
+ * mainteneur dans SKILL.md).
+ *
+ * Volontairement une liste COURTE et explicite, pas une heuristique : un
+ * nom qui n'y figure pas est traité comme une identité réelle. Le défaut
+ * reste donc la détection, l'exemption est l'exception nommée.
+ */
+const PLACEHOLDER_USERS = new Set(["exemple", "example", "utilisateur", "user", "username", "monuser", "youruser"]);
+
+function isPlaceholderUser(captured: string | undefined): boolean {
+  return captured !== undefined && PLACEHOLDER_USERS.has(captured.toLowerCase());
+}
 
 export interface PersonalDataMatch {
   pattern: string;
@@ -49,7 +72,7 @@ export function scanContentForPersonalData(content: string): PersonalDataMatch[]
   content.split("\n").forEach((line, idx) => {
     for (const pattern of PATTERNS) {
       const match = line.match(pattern.regex);
-      if (match) {
+      if (match && !isPlaceholderUser(match[1])) {
         matches.push({ pattern: pattern.name, line: idx + 1, excerpt: match[0] });
       }
     }

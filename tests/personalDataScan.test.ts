@@ -39,6 +39,40 @@ describe("scanContentForPersonalData", () => {
     expect(scanContentForPersonalData("const p = './projects/foo';")).toEqual([]);
   });
 
+  // Liste blanche de placeholders (01/10/2026) : le scan doit distinguer un
+  // chemin de DOCUMENTATION d'une identité réelle, sinon il devient
+  // impossible de documenter un chemin Windows — ce que ce projet manipule
+  // pourtant en permanence.
+  it("ne flague pas un nom d'utilisateur manifestement fictif (exemple)", () => {
+    expect(scanContentForPersonalData('const p = "C:\\\\Users\\\\exemple\\\\Documents";')).toEqual([]);
+  });
+
+  it("ne flague pas les autres placeholders de la liste blanche", () => {
+    expect(scanContentForPersonalData("C:/Users/example/Documents")).toEqual([]);
+    expect(scanContentForPersonalData("C:/Users/utilisateur/Documents")).toEqual([]);
+    expect(scanContentForPersonalData("/home/user/.config")).toEqual([]);
+  });
+
+  it("reste insensible à la casse du placeholder", () => {
+    expect(scanContentForPersonalData("C:/Users/Exemple/Documents")).toEqual([]);
+  });
+
+  it("flague toujours un nom qui n'est PAS dans la liste blanche", () => {
+    const matches = scanContentForPersonalData("C:/Users/sylva/Documents/projects");
+    expect(matches.some((m) => m.pattern === "hardcoded Windows path")).toBe(true);
+  });
+
+  it("ne laisse pas un placeholder masquer une vraie fuite sur une autre ligne", () => {
+    const content = "C:/Users/exemple/ok\nC:/Users/alice/secret";
+    const matches = scanContentForPersonalData(content);
+    // Un chemin Windows declenche AUSSI le motif POSIX (/Users/<x>/ est
+    // contenu dedans) : on verifie donc que TOUTES les detections sont sur la
+    // ligne 2, pas leur nombre.
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.every((m) => m.line === 2)).toBe(true);
+    expect(matches[0]?.line).toBe(2);
+  });
+
   it("reports the line number of each match", () => {
     const content = "line 1\nline 2 const p = 'C:/Users/alice/docs'\nline 3";
     const matches = scanContentForPersonalData(content);
