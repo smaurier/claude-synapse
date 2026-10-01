@@ -8,16 +8,66 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Matrice ajoutée 01/10/2026. La CI ne tournait que sur ubuntu-latest alors
+    # que la cible principale de Synapse est Windows : le mécanisme central est
+    # une JONCTION NTFS et le hub embarque des hooks PowerShell. Un EPERM
+    # reproductible sur le teardown des tests (handles encore ouverts après
+    # close(), comportement propre à Windows) passait inaperçu pour cette seule
+    # raison — voir tests/helpers/fsTemp.ts.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    env:
+      # Interdit au globalSetup de dégrader les tests d'intégration en "skip"
+      # quand le modèle est injoignable. Hors CI le skip est un confort pour
+      # développeur hors ligne ; ici il masquerait une régression.
+      SYNAPSE_REQUIRE_MODEL: "1"
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # git-crypt n'est pas préinstallé sur les runners. tests/git.test.ts
+      # pilote le vrai binaire (choix délibéré, pas de mock) et échouait donc
+      # en ENOENT. Installé ici sur Linux, où il est packagé ; sur
+      # windows-latest aucun gestionnaire du runner ne le distribue, le bloc
+      # se marque "skipped" (voir tests/helpers/binaries.ts).
+      - name: Installer git-crypt (Linux uniquement)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y git-crypt
+
       - run: npm install
+
+      # Le modèle q8 pèse ~120 Mo et était retéléchargé à chaque exécution :
+      # principal responsable des 488 s mesurées le 01/10.
+      #
+      # ATTENTION à l'ordre : transformers.js n'accepte AUCUNE variable
+      # d'environnement pour son cache (vérifié dans son env.js — ni HF_HOME
+      # ni TRANSFORMERS_CACHE ne sont lus). Le chemin est figé sous
+      # node_modules, donc la restauration doit venir APRÈS npm install,
+      # sinon elle serait écrasée par l'installation.
+      - name: Cache du modèle d'embeddings
+        uses: actions/cache@v4
+        with:
+          path: node_modules/@huggingface/transformers/.cache
+          key: hf-${{ runner.os }}-${{ hashFiles('src/rag/embeddingProvider.ts') }}
+          restore-keys: hf-${{ runner.os }}-
+
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm test
+
+      - name: Tests
+        run: npm test
+        env:
+          # Exigé seulement là où le binaire est installé : sur Linux un skip
+          # des tests git-crypt serait un trou de couverture silencieux.
+          SYNAPSE_REQUIRE_GIT_CRYPT: ${{ runner.os == 'Linux' && '1' || '0' }}
+
       - run: npm run build
       # Backlog 16/08 (étude de marché Synapse) — repeatable replacement
       # for the one-time-only "revue anti-données-perso" done by hand
