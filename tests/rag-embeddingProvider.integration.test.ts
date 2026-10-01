@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { it, expect, vi } from "vitest";
 import { chunkFileForEmbedding, embedLocal } from "../src/rag/embeddingProvider.js";
+import { describeWithModel } from "./helpers/model.js";
 
 // Real model, real tokenizer — slower than the rest of the suite (model
 // load + WASM inference), kept in its own file for that reason. This is
@@ -27,7 +28,7 @@ jamais d'édition manuelle de fichier requise (\`/outil-init\` au premier lancem
 4) création de la jonction → 5) vérification post-install.
 `.repeat(3); // long enough to force multiple chunks
 
-describe("chunkFileForEmbedding (real tokenizer)", () => {
+describeWithModel("chunkFileForEmbedding (real tokenizer)", () => {
   it("every chunk stays within the model's true token limit when re-encoded", async () => {
     const chunks = await chunkFileForEmbedding("sample.md", FRENCH_MARKDOWN_SAMPLE);
 
@@ -43,7 +44,7 @@ describe("chunkFileForEmbedding (real tokenizer)", () => {
   }, 120_000);
 });
 
-describe("embedLocal (real model)", () => {
+describeWithModel("embedLocal (real model)", () => {
   it("returns a 384-dimensional normalized vector for multilingual MiniLM", async () => {
     const vector = await embedLocal("test court");
     expect(vector).toHaveLength(384);

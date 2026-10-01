@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeSessionResults } from "../src/commands/sessionResults.js";
 import { buildPostCompactOutput } from "../src/commands/postCompact.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let pluginDataDir: string;
 
@@ -12,7 +13,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(pluginDataDir, { recursive: true, force: true });
+  rmTree(pluginDataDir);
 });
 
 describe("buildPostCompactOutput", () => {

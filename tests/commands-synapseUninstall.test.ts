@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSynapseUninstall } from "../src/commands/synapseUninstall.js";
 import { writeLocalConfig } from "../src/config/config.js";
 import { createLink } from "../src/jonction/jonction.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 let pluginDataDir: string;
@@ -22,7 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("runSynapseUninstall", () => {

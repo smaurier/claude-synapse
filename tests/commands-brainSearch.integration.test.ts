@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBrainSearch } from "../src/commands/brainSearch.js";
 import { writeLocalConfig } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithModel } from "./helpers/model.js";
 
 // Real model — proves the actual CLI-facing entrypoint (LocalConfig
 // resolution included), not just searchHub.ts in isolation. Slow, own file,
@@ -21,10 +23,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(join(pluginDataDir, ".."), { recursive: true, force: true });
+  rmTree(join(pluginDataDir, ".."));
 });
 
-describe("runBrainSearch", () => {
+describeWithModel("runBrainSearch", () => {
   it("throws a clear error when no LocalConfig was ever initialized", async () => {
     await expect(runBrainSearch(pluginDataDir, "peu importe")).rejects.toThrow(/synapse-init/);
   });

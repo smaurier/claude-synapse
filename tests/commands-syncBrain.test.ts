@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { syncBrain } from "../src/commands/syncBrain.js";
 import { acquireLock } from "../src/lock/lock.js";
 import { ensureHubGitignore } from "../src/config/hubGitignore.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 let bareRepoPath: string;
@@ -45,7 +46,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("syncBrain", () => {

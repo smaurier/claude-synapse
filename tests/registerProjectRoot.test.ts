@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerProjectRoot } from "../src/commands/registerProjectRoot.js";
 import { readLocalConfig, defaultLocalConfigPath } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 // Backlog 16/08 (item 8, résolu le 17/08) : `metadata.cites: <path>` était
 // bloqué sur "quel dépôt correspond à quel chemin" — les chemins sont
@@ -22,7 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(pluginDataDir, { recursive: true, force: true });
+  rmTree(pluginDataDir);
 });
 
 describe("registerProjectRoot", () => {

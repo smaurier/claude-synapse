@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureHubGitignore } from "../src/config/hubGitignore.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let hubDir: string;
 
@@ -11,7 +12,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(hubDir, { recursive: true, force: true });
+  rmTree(hubDir);
 });
 
 describe("ensureHubGitignore", () => {

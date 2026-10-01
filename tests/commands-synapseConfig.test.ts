@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { showSynapseConfig, setSynapseConfig } from "../src/commands/synapseConfig.js";
 import { writeLocalConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 let pluginDataDir: string;
@@ -23,7 +24,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("showSynapseConfig", () => {

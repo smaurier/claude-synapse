@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ensureDependencies, resolvePluginRoot } from "../src/config/dependencies.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 // Found 24/08 while resuming the jonction work: a plugin installed via
 // `claude plugin marketplace add` + `claude plugin install` (a plain git
@@ -22,7 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("ensureDependencies", () => {

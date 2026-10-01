@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemoryFile } from "../src/commands/brainNew.js";
 import { writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let hubDir: string;
 
@@ -12,7 +13,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(hubDir, { recursive: true, force: true });
+  rmTree(hubDir);
 });
 
 describe("createMemoryFile", () => {

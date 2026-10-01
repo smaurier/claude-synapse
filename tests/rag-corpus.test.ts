@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadCorpus, loadHubCorpus } from "../src/rag/corpus.js";
 import { DEFAULT_SHARED_CONFIG, writeSharedConfig } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 
@@ -12,7 +13,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("loadCorpus", () => {

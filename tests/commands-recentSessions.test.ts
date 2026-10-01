@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseSessionTitle, findRecentSessions } from "../src/commands/recentSessions.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 // Backlog 16/08 (étude de marché Synapse — remplace l'idée initiale
 // "indexer tout l'historique des sessions" par une version dégradée : un
@@ -55,7 +56,7 @@ describe("findRecentSessions", () => {
   });
 
   afterEach(() => {
-    rmSync(projectsDir, { recursive: true, force: true });
+    rmTree(projectsDir);
   });
 
   function writeSession(slug: string, sessionId: string, content: string, mtime: Date): void {

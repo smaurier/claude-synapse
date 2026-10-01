@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSynapseDoctor } from "../src/commands/synapseDoctor.js";
 import { writeLocalConfig, writeSharedConfig, readSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
 import { createLink, inspectLink } from "../src/jonction/jonction.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithModel } from "./helpers/model.js";
 
 let root: string;
 let pluginDataDir: string;
@@ -27,10 +29,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
-describe("runSynapseDoctor", () => {
+describeWithModel("runSynapseDoctor", () => {
   it("reports link/corpus/lint state and records the audit timestamp", async () => {
     createLink(hubDir, linkPath);
     writeFileSync(join(hubDir, "ok.md"), "---\nname: ok\ndescription: x\nmetadata:\n  type: reference\n---\n", "utf8");
@@ -47,7 +49,7 @@ describe("runSynapseDoctor", () => {
     const ghostHub = join(root, "ghost");
     mkdirSync(ghostHub, { recursive: true });
     createLink(ghostHub, linkPath);
-    rmSync(ghostHub, { recursive: true, force: true });
+    rmTree(ghostHub);
 
     const report = await runSynapseDoctor(pluginDataDir, linkPath);
 

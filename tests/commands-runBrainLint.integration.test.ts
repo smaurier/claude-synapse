@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBrainLint } from "../src/commands/runBrainLint.js";
 import { writeLocalConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithModel } from "./helpers/model.js";
 
 // Real model — slow, own file, same rationale as the other
 // *.integration.test.ts files.
@@ -26,10 +28,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
-describe("runBrainLint", () => {
+describeWithModel("runBrainLint", () => {
   it("reports frontmatter findings and near-duplicate files as merge candidates", async () => {
     writeFileSync(
       join(hubDir, "a.md"),

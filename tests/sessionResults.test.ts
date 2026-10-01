@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeSessionResults, readSessionResults, formatSessionResultsAsContext } from "../src/commands/sessionResults.js";
 import type { HybridResult } from "../src/rag/hybridSearch.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 // Backlog 16/08 (étude de marché Synapse) — compaction-light: Synapse ne
 // journalise pas la session (ce n'est pas un observateur), donc rien à
@@ -21,7 +22,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(pluginDataDir, { recursive: true, force: true });
+  rmTree(pluginDataDir);
 });
 
 const RESULTS: HybridResult[] = [
