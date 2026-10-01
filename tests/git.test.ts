@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { cloneOrPullHub, unlockGitCryptIfPresent } from "../src/config/git.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithGitCrypt } from "./helpers/binaries.js";
 
 // Real git, real local "remote" (a bare repo) — no mocking of git itself,
 // consistent with how this codebase tests real fs/exec behavior elsewhere
@@ -40,7 +42,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("cloneOrPullHub", () => {
@@ -115,10 +117,18 @@ describe("cloneOrPullHub", () => {
 // under test. Production code never sets GNUPGHOME at all, so real usage
 // (default keyring) is unaffected.
 function toGpgHomePath(p: string): string {
+  // Garde de plateforme ajoutée 01/10/2026 : la conversion ci-dessous est
+  // spécifique à Windows, mais elle était appliquée inconditionnellement.
+  // Sur un chemin POSIX (`/tmp/xxx`), p[0] vaut "/" et p.slice(2) saute
+  // "/t" : GNUPGHOME devenait `//mp/xxx`, un dossier inexistant. gpg ne
+  // pouvait alors plus créer son socket, d'où le "No agent running" qui
+  // faisait échouer les 4 tests git-crypt sur CHAQUE exécution de la CI
+  // depuis le 25/08 — 5 runs sur 5 en échec, badge README rouge inclus.
+  if (process.platform !== "win32") return p;
   return "/" + p[0]!.toLowerCase() + p.slice(2).replaceAll("\\", "/");
 }
 
-describe("unlockGitCryptIfPresent", () => {
+describeWithGitCrypt("unlockGitCryptIfPresent", () => {
   let gcRoot: string;
   let gnupgEnvBackup: string | undefined;
 
@@ -150,7 +160,7 @@ describe("unlockGitCryptIfPresent", () => {
   afterEach(() => {
     if (gnupgEnvBackup === undefined) delete process.env.GNUPGHOME;
     else process.env.GNUPGHOME = gnupgEnvBackup;
-    rmSync(gcRoot, { recursive: true, force: true });
+    rmTree(gcRoot);
   });
 
   function seedGitCryptRepo(): string {
