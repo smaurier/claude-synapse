@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hybridSearchHub } from "../src/rag/hybridSearch.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithModel } from "./helpers/model.js";
 
 // Reproduces the exact failure found during the real-hub test (14/08): a
 // bare acronym embeds poorly and gets missed by pure semantic search, even
@@ -15,10 +17,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(hub, { recursive: true, force: true });
+  rmTree(hub);
 });
 
-describe("hybridSearchHub", () => {
+describeWithModel("hybridSearchHub", () => {
   it("finds a bare acronym via exact match even though semantic search alone misses it", async () => {
     writeFileSync(join(hub, "secu.md"), "LEP (10k€) intouchable, dernier recours ; pas d'avance ESN.", "utf8");
     writeFileSync(join(hub, "autre.md"), "Recette de cuisine : faire bouillir des pâtes.", "utf8");

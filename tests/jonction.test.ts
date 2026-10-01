@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { rmTree } from "./helpers/fsTemp.js";
 import {
   inspectLink,
   createLink,
@@ -25,7 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
   // Test fixtures only — never the code under test's own removal path.
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("inspectLink", () => {
@@ -49,7 +50,7 @@ describe("inspectLink", () => {
     const ghostHub = join(root, "ghost-hub");
     mkdirSync(ghostHub, { recursive: true });
     createLink(ghostHub, linkPath);
-    rmSync(ghostHub, { recursive: true, force: true });
+    rmTree(ghostHub);
     expect(inspectLink(linkPath, hub)).toBe("broken");
   });
 
@@ -169,7 +170,7 @@ describe("ensureHubLink — idempotent interactive reconciliation", () => {
     const ghostHub = join(root, "ghost-hub");
     mkdirSync(ghostHub, { recursive: true });
     createLink(ghostHub, linkPath);
-    rmSync(ghostHub, { recursive: true, force: true });
+    rmTree(ghostHub);
 
     const result = ensureHubLink(hub, linkPath);
 

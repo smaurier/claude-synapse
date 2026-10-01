@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { refreshProjects, ensureCurrentProjectLinked } from "../src/commands/refreshProjects.js";
 import { inspectLink } from "../src/jonction/jonction.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 let hubDir: string;
@@ -15,7 +16,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("refreshProjects", () => {

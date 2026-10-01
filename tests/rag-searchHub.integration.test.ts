@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { searchHub, refreshHubIndex } from "../src/rag/searchHub.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithModel } from "./helpers/model.js";
 
 // Real model, real tokenizer, real corpus walk on an actual directory — the
 // end-to-end proof for the piece that will sit behind bin/brain-search.
@@ -16,10 +18,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(hub, { recursive: true, force: true });
+  rmTree(hub);
 });
 
-describe("searchHub", () => {
+describeWithModel("searchHub", () => {
   it("finds the most relevant memory file in a real hub directory", async () => {
     writeFileSync(join(hub, "chat.md"), "Le chat dort sur le canapé toute la journée.", "utf8");
     mkdirSync(join(hub, "sous-dossier"), { recursive: true });
@@ -47,7 +49,7 @@ describe("searchHub", () => {
   }, 120_000);
 });
 
-describe("refreshHubIndex", () => {
+describeWithModel("refreshHubIndex", () => {
   it("builds the index without running a search, ready for a later searchHub() call", async () => {
     writeFileSync(join(hub, "chat.md"), "Le chat dort sur le canapé toute la journée.", "utf8");
 

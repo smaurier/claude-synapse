@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootstrap } from "../src/config/bootstrap.js";
 import { DEFAULT_SHARED_CONFIG, writeSharedConfig } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 let localConfigPath: string;
@@ -19,7 +20,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("bootstrap — order of operations", () => {

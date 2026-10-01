@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { rmTree } from "./helpers/fsTemp.js";
 import {
   DEFAULT_SHARED_CONFIG,
   readSharedConfig,
@@ -21,7 +22,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("shared config (lives inside the hub, versioned, synced)", () => {

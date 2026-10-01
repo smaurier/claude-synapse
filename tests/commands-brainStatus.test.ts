@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getBrainStatus } from "../src/commands/brainStatus.js";
 import { writeLocalConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
 import { createLink } from "../src/jonction/jonction.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 let pluginDataDir: string;
@@ -27,7 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("getBrainStatus", () => {

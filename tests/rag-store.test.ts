@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VectorStore } from "../src/rag/store.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
 let dbPath: string;
@@ -16,7 +17,7 @@ beforeEach(() => {
 
 afterEach(() => {
   store.close();
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 describe("VectorStore", () => {

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireLock, releaseLock } from "../src/lock/lock.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let hubDir: string;
 
@@ -12,7 +13,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(hubDir, { recursive: true, force: true });
+  rmTree(hubDir);
 });
 
 describe("acquireLock", () => {
@@ -22,7 +23,7 @@ describe("acquireLock", () => {
       const result = acquireLock(freshHub, "workstation-a", 10);
       expect(result.acquired).toBe(true);
     } finally {
-      rmSync(freshHub, { recursive: true, force: true });
+      rmTree(freshHub);
     }
   });
 

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensurePinnedEmbeddingModel, DEFAULT_MODEL_ID } from "../src/rag/embeddingProvider.js";
 import { readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
 
 let hubDir: string;
 
@@ -13,7 +14,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(hubDir, { recursive: true, force: true });
+  rmTree(hubDir);
 });
 
 describe("ensurePinnedEmbeddingModel", () => {

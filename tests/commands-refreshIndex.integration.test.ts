@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runRefreshIndex } from "../src/commands/refreshIndex.js";
 import { writeLocalConfig, readSharedConfig } from "../src/config/config.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithModel } from "./helpers/model.js";
 
 let pluginDataDir: string;
 let hubDir: string;
@@ -18,10 +20,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
-describe("runRefreshIndex", () => {
+describeWithModel("runRefreshIndex", () => {
   it("throws a clear error when no LocalConfig was ever initialized", async () => {
     await expect(runRefreshIndex(pluginDataDir)).rejects.toThrow(/synapse-init/);
   });

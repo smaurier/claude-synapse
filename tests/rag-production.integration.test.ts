@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VectorStore } from "../src/rag/store.js";
 import { synapseSearch } from "../src/rag/production.js";
+import { rmTree } from "./helpers/fsTemp.js";
+import { describeWithModel } from "./helpers/model.js";
 
 // Real model, real tokenizer, real chunker — the actual proof that the
 // production wiring point (not just its pieces in isolation) behaves.
@@ -20,10 +22,10 @@ beforeEach(() => {
 
 afterEach(() => {
   store.close();
-  rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
-describe("synapseSearch", () => {
+describeWithModel("synapseSearch", () => {
   it("finds the most relevant file using the real embedding model", async () => {
     const corpus = [
       { path: "chat.md", content: "Le chat dort sur le canapé toute la journée." },
