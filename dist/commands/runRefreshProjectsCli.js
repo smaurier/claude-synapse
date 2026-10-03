@@ -8,6 +8,7 @@ const LINK_ACTION_LABELS = {
     created: "lien créé",
     recreated: "recréé (mauvaise cible ou cassé)",
     "recreated-after-backup": "sauvegarde + lien créé",
+    "skipped-inside-hub": "ignoré — ce chemin est DANS le hub (une jonction y pointerait sur son propre ancêtre)",
 };
 async function main() {
     const [pluginDataDir, rootDir] = process.argv.slice(2);

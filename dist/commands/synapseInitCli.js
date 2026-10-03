@@ -19,6 +19,8 @@ const LINK_ACTION_LABELS = {
     created: "lien créé.",
     recreated: "lien existant incorrect (mauvaise cible ou cassé) — recréé.",
     "recreated-after-backup": "du contenu réel existait à cet emplacement — sauvegardé, puis lien créé.",
+    "skipped-inside-hub": "ignoré — ce chemin est DANS le hub lui-même. Le contenu réel y est déjà la mémoire : rien à lier, "
+        + "et une jonction pointerait sur son propre ancêtre (boucle sans fin à la première traversée récursive).",
 };
 async function main() {
     const [pluginDataDir, hubUrl, linkPath, hubClonePath, corpusRoot] = process.argv.slice(2);

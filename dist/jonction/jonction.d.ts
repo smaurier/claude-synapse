@@ -51,7 +51,7 @@ export declare function backupExisting(path: string): string;
  * Cleans up after itself either way.
  */
 export declare function verifyWriteThrough(linkPath: string, hubPath: string): boolean;
-export type EnsureLinkAction = "already-ok" | "created" | "recreated" | "recreated-after-backup";
+export type EnsureLinkAction = "already-ok" | "created" | "recreated" | "recreated-after-backup" | "skipped-inside-hub";
 export interface EnsureLinkResult {
     action: EnsureLinkAction;
     backupPath?: string;
