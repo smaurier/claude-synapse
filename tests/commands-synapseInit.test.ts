@@ -152,3 +152,43 @@ describe("runSynapseInit — adopting an existing directory as hub", () => {
     expect(sharedConfig.corpusRoot).toBe("memory");
   }, 15_000);
 });
+
+// Ajouté 03/10 : le pendant end-to-end du correctif 46a7fda. Le garde
+// skipped-inside-hub vivait dans ensureHubLink et était couvert unitairement,
+// mais /synapse-init dans son ensemble échouait quand même — bootstrap
+// vérifiait l'écriture traversante sur un chemin jamais créé. Un garde qui
+// mord mais dont l'appelant plante reste un bug du point de vue de l'usager.
+describe("runSynapseInit — chemin de lien situé DANS le hub", () => {
+  it("rapporte skipped-inside-hub au lieu d'échouer sur la vérification post-install", async () => {
+    const hubDir = join(root, "hub-adopte");
+    git(["clone", bareRepoPath, hubDir], root);
+
+    const result = await runSynapseInit({
+      pluginDataDir,
+      hubUrl: bareRepoPath,
+      linkPath: join(hubDir, ".claude", "memory"),
+      hubClonePath: hubDir,
+    });
+
+    expect(result.link.action).toBe("skipped-inside-hub");
+    // Rien n'a été créé : pas de jonction, et surtout pas le début d'une boucle.
+    expect(existsSync(join(hubDir, ".claude"))).toBe(false);
+  }, 15_000);
+
+  it("rapporte skipped-inside-hub pour la boucle exacte de 0.1.3 (<hub>/memory/.claude/memory)", async () => {
+    const hubDir = join(root, "hub-adopte-2");
+    git(["clone", bareRepoPath, hubDir], root);
+    mkdirSync(join(hubDir, "memory"), { recursive: true });
+
+    const result = await runSynapseInit({
+      pluginDataDir,
+      hubUrl: bareRepoPath,
+      linkPath: join(hubDir, "memory", ".claude", "memory"),
+      hubClonePath: hubDir,
+      corpusRoot: "memory",
+    });
+
+    expect(result.link.action).toBe("skipped-inside-hub");
+    expect(existsSync(join(hubDir, "memory", ".claude"))).toBe(false);
+  }, 15_000);
+});

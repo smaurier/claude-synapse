@@ -20,7 +20,7 @@
  */
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, recordMachineSeen, DEFAULT_SHARED_CONFIG } from "../config/config.js";
 import { acquireLock, releaseLock } from "../lock/lock.js";
-import { loadCorpus } from "../rag/corpus.js";
+import { loadHubCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { inspectLink, createLink, removeLink } from "../jonction/jonction.js";
 import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences } from "./brainLint.js";
@@ -47,7 +47,7 @@ export async function runSynapseDoctor(pluginDataDir, linkPath) {
     // Problème 4 health-check + /brain-lint, in one corpus load. wipLimit
     // read unlocked (a read, not a write) — the lock below only guards the
     // lastAuditAt write.
-    const corpus = loadCorpus(local.hubClonePath);
+    const corpus = loadHubCorpus(local.hubClonePath);
     const sharedForRead = readSharedConfig(local.hubClonePath);
     const merge = await findMergeCandidatesGuarded(corpus, embedLocal, chunkFileForEmbedding, sharedForRead.mergeCandidatesMaxFiles);
     const citedCodeDriftFindings = await checkCitedCodeDrift(corpus, createGitLastCommitDateResolver(local.knownProjectRoots ?? {}));

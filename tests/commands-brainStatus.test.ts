@@ -51,3 +51,27 @@ describe("getBrainStatus", () => {
     expect(status.linkState).toBe("missing");
   });
 });
+
+// Ajouté 03/10 : constaté en conditions réelles sur le hub de la tour.
+// loadHubCorpus() existe précisément pour répondre à « quel dossier, pour CE
+// hub » via SharedConfig.corpusRoot, et son commentaire nomme ses appelants :
+// searchHub / hybridSearchHub / refreshHubIndex. brainStatus, runBrainLint et
+// synapseDoctor appelaient loadCorpus(hubClonePath) en direct et comptaient
+// donc tout le hub — archives, fiches d'entretien, brouillons — comme s'il
+// s'agissait de mémoires.
+describe("getBrainStatus — corpusRoot", () => {
+  it("ne compte que les fichiers du corpusRoot, pas tout le hub", async () => {
+    mkdirSync(join(hubDir, "memory"), { recursive: true });
+    mkdirSync(join(hubDir, "archive"), { recursive: true });
+    writeFileSync(join(hubDir, "memory", "a.md"), "une mémoire", "utf8");
+    writeFileSync(join(hubDir, "memory", "b.md"), "une autre", "utf8");
+    writeFileSync(join(hubDir, "archive", "vieux-journal.md"), "pas une mémoire", "utf8");
+    writeFileSync(join(hubDir, "PARCOURS.md"), "pas une mémoire non plus", "utf8");
+    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, corpusRoot: "memory" });
+    createLink(hubDir, linkPath);
+
+    const status = await getBrainStatus(pluginDataDir, linkPath);
+
+    expect(status.fileCount).toBe(2);
+  });
+});

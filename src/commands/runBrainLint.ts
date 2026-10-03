@@ -7,7 +7,7 @@
  */
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
-import { loadCorpus } from "../rag/corpus.js";
+import { loadHubCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, type LintFinding, type MergeCandidate } from "./brainLint.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
@@ -20,7 +20,7 @@ export interface BrainLintReport {
 export async function runBrainLint(pluginDataDir: string): Promise<BrainLintReport> {
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   ensurePinnedEmbeddingModel(local.hubClonePath);
-  const corpus = loadCorpus(local.hubClonePath);
+  const corpus = loadHubCorpus(local.hubClonePath);
   const shared = readSharedConfig(local.hubClonePath);
 
   // chunkFileForEmbedding, not the default character heuristic — same

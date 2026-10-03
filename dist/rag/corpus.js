@@ -31,13 +31,20 @@ export function loadCorpus(rootDir) {
     return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 /**
- * The corpusRoot-aware entrypoint: what searchHub/hybridSearchHub/
- * refreshHubIndex actually call. loadCorpus() itself stays a plain
- * "walk this directory" primitive (still used directly by tests and
- * anywhere the caller already knows the exact directory to scan) — this
- * is the one place that also asks "which directory, for THIS hub" via
- * SharedConfig.corpusRoot (added 24/08, "adopt an existing directory as
- * hub" — see resolveCorpusRoot's own doc comment).
+ * The corpusRoot-aware entrypoint: what searchHub / hybridSearchHub /
+ * refreshHubIndex / brainStatus / runBrainLint / synapseDoctor actually
+ * call. loadCorpus() itself stays a plain "walk this directory" primitive
+ * (still used directly by tests and anywhere the caller already knows the
+ * exact directory to scan) — this is the one place that also asks "which
+ * directory, for THIS hub" via SharedConfig.corpusRoot (added 24/08,
+ * "adopt an existing directory as hub" — see resolveCorpusRoot's own doc
+ * comment).
+ *
+ * The last three callers were added to this list on 03/10, after a real
+ * hub (corpusRoot "memory", plus archive/ and interview folders at the
+ * root) showed /brain-lint reporting 106 of its 107 errors against files
+ * that are not memories at all. Going through loadCorpus() directly isn't
+ * a shortcut — it's a second, divergent answer to "what is the corpus".
  */
 export function loadHubCorpus(hubClonePath) {
     return loadCorpus(resolveCorpusRoot(hubClonePath));

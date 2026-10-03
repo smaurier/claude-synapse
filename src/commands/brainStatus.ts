@@ -7,7 +7,7 @@
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
 import { inspectLink, type LinkState } from "../jonction/jonction.js";
-import { loadCorpus } from "../rag/corpus.js";
+import { loadHubCorpus } from "../rag/corpus.js";
 
 export interface BrainStatusResult {
   hubClonePath: string;
@@ -21,7 +21,7 @@ export async function getBrainStatus(pluginDataDir: string, linkPath: string): P
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   const shared = readSharedConfig(local.hubClonePath);
   const linkState = inspectLink(linkPath, local.hubClonePath);
-  const corpus = loadCorpus(local.hubClonePath);
+  const corpus = loadHubCorpus(local.hubClonePath);
 
   return {
     hubClonePath: local.hubClonePath,

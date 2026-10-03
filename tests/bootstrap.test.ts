@@ -33,6 +33,7 @@ describe("bootstrap — order of operations", () => {
     });
     const createHubLink = vi.fn(() => {
       calls.push("create-link");
+      return true;
     });
     const verifyLink = vi.fn(() => {
       calls.push("verify-link");
@@ -68,7 +69,7 @@ describe("bootstrap — order of operations", () => {
       linkPath,
       machineId: "workstation-a",
       cloneOrPullHub,
-      createHubLink: vi.fn(),
+      createHubLink: vi.fn(() => true),
       verifyLink: vi.fn(() => true),
     });
 
@@ -89,7 +90,7 @@ describe("bootstrap — order of operations", () => {
       linkPath,
       machineId: "workstation-b",
       cloneOrPullHub,
-      createHubLink: vi.fn(),
+      createHubLink: vi.fn(() => true),
       verifyLink: vi.fn(() => true),
     });
 
@@ -109,7 +110,7 @@ describe("bootstrap — order of operations", () => {
       machineId: "workstation-a",
       corpusRoot: "memory",
       cloneOrPullHub,
-      createHubLink: vi.fn(),
+      createHubLink: vi.fn(() => true),
       verifyLink: vi.fn(() => true),
     });
 
@@ -131,7 +132,7 @@ describe("bootstrap — order of operations", () => {
       // no corpusRoot passed — a second machine re-running /synapse-init
       // plain must not silently reset what the first machine configured.
       cloneOrPullHub,
-      createHubLink: vi.fn(),
+      createHubLink: vi.fn(() => true),
       verifyLink: vi.fn(() => true),
     });
 
@@ -150,7 +151,7 @@ describe("bootstrap — order of operations", () => {
       linkPath,
       machineId: "workstation-a",
       cloneOrPullHub,
-      createHubLink: vi.fn(),
+      createHubLink: vi.fn(() => true),
       verifyLink: vi.fn(() => true),
     });
 
@@ -174,7 +175,7 @@ describe("bootstrap — order of operations", () => {
         linkPath,
         machineId: "workstation-a",
         cloneOrPullHub,
-        createHubLink: vi.fn(),
+        createHubLink: vi.fn(() => true),
         verifyLink: vi.fn(() => true),
       }),
     ).rejects.toThrow(/verrou/i);
@@ -193,9 +194,36 @@ describe("bootstrap — order of operations", () => {
         linkPath,
         machineId: "workstation-a",
         cloneOrPullHub,
-        createHubLink: vi.fn(),
+        createHubLink: vi.fn(() => true),
         verifyLink: vi.fn(() => false),
       }),
     ).rejects.toThrow(/v.rification/i);
+  });
+
+  // Régression 03/10 : le correctif de la boucle de jonction (46a7fda) a ajouté
+  // l'action skipped-inside-hub — ensureHubLink ne crée alors AUCUN lien. Mais
+  // bootstrap vérifiait quand même l'écriture traversante, sur un chemin qui
+  // n'existe pas : ENOENT brut au lieu du message de skip que le CLI sait déjà
+  // formuler. Le garde protégeait, l'intégration le trahissait.
+  it("ne vérifie rien quand createHubLink signale qu'aucun lien n'a été créé (chemin DANS le hub)", async () => {
+    const cloneOrPullHub = vi.fn(async () => {
+      mkdirSync(hubClonePath, { recursive: true });
+    });
+    const verifyLink = vi.fn(() => true);
+
+    await expect(
+      bootstrap({
+        hubUrl: "git@github.com:example-user/my-hub.git",
+        localConfigPath,
+        hubClonePath,
+        linkPath,
+        machineId: "workstation-a",
+        cloneOrPullHub,
+        createHubLink: vi.fn(() => false),
+        verifyLink,
+      }),
+    ).resolves.toBeDefined();
+
+    expect(verifyLink).not.toHaveBeenCalled();
   });
 });

@@ -53,8 +53,16 @@ export async function bootstrap(opts) {
     finally {
         releaseLock(opts.hubClonePath, opts.machineId);
     }
-    opts.createHubLink(opts.hubClonePath, opts.linkPath);
-    // Never report success without proof the link actually works.
+    const linked = opts.createHubLink(opts.hubClonePath, opts.linkPath);
+    // Never report success without proof the link actually works — but only
+    // when a link was actually meant to exist. ensureHubLink() deliberately
+    // creates nothing when linkPath sits inside the hub (skipped-inside-hub,
+    // added 03/10 against the self-referential loop): verifying write-through
+    // on a path that was never created throws a raw ENOENT and buries the one
+    // message that explains what happened. "Nothing to verify" is a correct
+    // outcome here, not a silent success.
+    if (linked === false)
+        return { sharedConfig };
     const verified = opts.verifyLink(opts.linkPath, opts.hubClonePath);
     if (!verified) {
         throw new Error(`synapse: vérification post-install échouée pour "${opts.linkPath}" — le lien a été créé ` +

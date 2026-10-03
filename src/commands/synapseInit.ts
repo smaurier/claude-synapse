@@ -9,10 +9,14 @@
  * would throw on a second /synapse-init (the link already exists) even
  * when it's already correct — ensureHubLink() is what makes re-running
  * /synapse-init safe (problème 1's idempotence design, only actually wired
- * up here). The action it took (no-op / created / recreated / backed up)
- * is captured via closure so the caller can report it — bootstrap.ts's
- * createHubLink signature returns void, and widening that tested interface
- * just to carry this one extra bit wasn't worth it.
+ * up here). The action it took (no-op / created / recreated / backed up /
+ * skipped) is captured via closure so the caller can report it.
+ *
+ * The closure also feeds bootstrap the one bit it genuinely needs back:
+ * whether a link now exists. Carrying the full action through the injected
+ * interface still isn't worth it, but a bare `void` was — until 03/10 — a
+ * real bug: on skipped-inside-hub nothing is created, and bootstrap went on
+ * to write-through test a path that doesn't exist.
  *
  * Visibility check runs BEFORE anything else — refuses outright (never
  * even clones) if the hub is confirmed public. Security gap flagged in the
@@ -74,6 +78,7 @@ export async function runSynapseInit(opts: SynapseInitOptions): Promise<SynapseI
     cloneOrPullHub,
     createHubLink: (hub, linkPath) => {
       link = ensureHubLink(hub, linkPath);
+      return link.action !== "skipped-inside-hub";
     },
     verifyLink: verifyWriteThrough,
   });

@@ -39,7 +39,10 @@ export interface BootstrapOptions {
    *  can never silently reset what a previous machine configured. */
   corpusRoot?: string;
   cloneOrPullHub: (hubUrl: string, hubClonePath: string) => void | Promise<void>;
-  createHubLink: (hubClonePath: string, linkPath: string) => void;
+  /** Returns whether a link now exists at linkPath and is therefore worth
+   *  verifying. `false` means linking was deliberately skipped (linkPath is
+   *  inside the hub) — not a failure, and nothing to write-through test. */
+  createHubLink: (hubClonePath: string, linkPath: string) => boolean;
   verifyLink: (linkPath: string, hubClonePath: string) => boolean;
 }
 
@@ -81,9 +84,17 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     releaseLock(opts.hubClonePath, opts.machineId);
   }
 
-  opts.createHubLink(opts.hubClonePath, opts.linkPath);
+  const linked = opts.createHubLink(opts.hubClonePath, opts.linkPath);
 
-  // Never report success without proof the link actually works.
+  // Never report success without proof the link actually works — but only
+  // when a link was actually meant to exist. ensureHubLink() deliberately
+  // creates nothing when linkPath sits inside the hub (skipped-inside-hub,
+  // added 03/10 against the self-referential loop): verifying write-through
+  // on a path that was never created throws a raw ENOENT and buries the one
+  // message that explains what happened. "Nothing to verify" is a correct
+  // outcome here, not a silent success.
+  if (linked === false) return { sharedConfig };
+
   const verified = opts.verifyLink(opts.linkPath, opts.hubClonePath);
   if (!verified) {
     throw new Error(

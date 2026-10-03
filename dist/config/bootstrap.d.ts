@@ -34,7 +34,10 @@ export interface BootstrapOptions {
      *  can never silently reset what a previous machine configured. */
     corpusRoot?: string;
     cloneOrPullHub: (hubUrl: string, hubClonePath: string) => void | Promise<void>;
-    createHubLink: (hubClonePath: string, linkPath: string) => void;
+    /** Returns whether a link now exists at linkPath and is therefore worth
+     *  verifying. `false` means linking was deliberately skipped (linkPath is
+     *  inside the hub) — not a failure, and nothing to write-through test. */
+    createHubLink: (hubClonePath: string, linkPath: string) => boolean;
     verifyLink: (linkPath: string, hubClonePath: string) => boolean;
 }
 export interface BootstrapResult {

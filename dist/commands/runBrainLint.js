@@ -6,14 +6,14 @@
  * ever mixing embedding spaces).
  */
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
-import { loadCorpus } from "../rag/corpus.js";
+import { loadHubCorpus } from "../rag/corpus.js";
 import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences } from "./brainLint.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 export async function runBrainLint(pluginDataDir) {
     const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
     ensurePinnedEmbeddingModel(local.hubClonePath);
-    const corpus = loadCorpus(local.hubClonePath);
+    const corpus = loadHubCorpus(local.hubClonePath);
     const shared = readSharedConfig(local.hubClonePath);
     // chunkFileForEmbedding, not the default character heuristic — same
     // token-exact chunker as production.ts, never a second weaker path.
