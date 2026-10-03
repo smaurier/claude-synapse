@@ -15,7 +15,7 @@
  */
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 
 export type LinkState = "ok" | "wrong-target" | "broken" | "missing";
 
@@ -27,6 +27,19 @@ export function platformLinkType(): "junction" | undefined {
 function normalizeForComparison(path: string): string {
   const resolved = resolve(path);
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * Is `child` the same as, or nested under, `parent` ?
+ *
+ * Deliberately NOT a string prefix test : "<root>/hub-autre" starts with
+ * "<root>/hub" without being inside it. relative() returning something that
+ * neither escapes upward ("..") nor is absolute (another drive on Windows)
+ * is the only cheap answer that gets that right.
+ */
+function isInsideOrSame(parent: string, child: string): boolean {
+  const rel = relative(normalizeForComparison(parent), normalizeForComparison(child));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 /**
@@ -163,7 +176,12 @@ export function verifyWriteThrough(linkPath: string, hubPath: string): boolean {
   }
 }
 
-export type EnsureLinkAction = "already-ok" | "created" | "recreated" | "recreated-after-backup";
+export type EnsureLinkAction =
+  | "already-ok"
+  | "created"
+  | "recreated"
+  | "recreated-after-backup"
+  | "skipped-inside-hub";
 
 export interface EnsureLinkResult {
   action: EnsureLinkAction;
@@ -198,6 +216,24 @@ export function ensureHubLink(hubClonePath: string, linkPath: string): EnsureLin
   // targets (case-insensitive on win32).
   if (normalizeForComparison(linkPath) === normalizeForComparison(hubClonePath)) {
     return { action: "already-ok" };
+  }
+
+  // Self-referential loop (bug du 24/08/2026, corrigé le 03/10/2026) : le
+  // chemin de lien tombe À L'INTÉRIEUR du hub. Le cas nominal est le hook
+  // SessionStart ouvert dans le hub lui-même, qui est self-hosté :
+  // <hub>/.claude/memory -> <hub> est une jonction vers son propre ancêtre.
+  // Toute traversée récursive (git add -A, scan d'index, sauvegarde) y
+  // descend memory/.claude/memory/.claude/memory/... jusqu'à « Filename too
+  // long ». Le garde `.claude/` du .gitignore du hub est en AVAL : il cache
+  // les dégâts, il ne les empêche pas. L'égalité stricte ci-dessus ne suffit
+  // pas — c'est une question de contenance, pas d'égalité.
+  //
+  // On ne lève PAS d'exception : ce code tourne à chaque SessionStart, et
+  // faire échouer toute session ouverte dans le hub serait un remède pire que
+  // le mal. Le contenu réel du hub est déjà la mémoire : il n'y a rien à
+  // lier, et l'action est rapportée pour rester visible côté CLI.
+  if (isInsideOrSame(hubClonePath, linkPath)) {
+    return { action: "skipped-inside-hub" };
   }
 
   const state = inspectLink(linkPath, hubClonePath);

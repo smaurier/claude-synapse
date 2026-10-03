@@ -207,3 +207,49 @@ describe("ensureHubLink — idempotent interactive reconciliation", () => {
     expect(readdirSync(hub)).toEqual(["real-memory.md"]); // no .bak-* sibling created
   });
 });
+
+describe("ensureHubLink — boucle auto-référentielle (bug du 24/08/2026)", () => {
+  /** Le hook SessionStart appelle ensureCurrentProjectLinked() sur le projet
+   *  courant quel qu'il soit. Quand ce projet EST le hub (self-hosté, cas
+   *  nominal sur la machine qui le détient), le chemin de lien tombe À
+   *  L'INTÉRIEUR du hub : <hub>/.claude/memory -> <hub>. La jonction pointe
+   *  alors sur son propre ancêtre, et toute traversée récursive (git add -A,
+   *  un scan d'index, une sauvegarde) descend
+   *  memory/.claude/memory/.claude/memory/... jusqu'à « Filename too long ».
+   *  Documenté dans le .gitignore du hub depuis le 24/08/2026 mais jamais
+   *  corrigé : le garde `.claude/` y est en AVAL, il masque les dégâts sans
+   *  les empêcher. L'égalité stricte déjà traitée plus haut (linkPath ===
+   *  hubClonePath) ne couvre pas ce cas, qui est une CONTENANCE. */
+  it("refuse de créer un lien directement sous le hub", () => {
+    const inside = join(hub, ".claude", "memory");
+    mkdirSync(join(hub, ".claude"), { recursive: true });
+
+    const result = ensureHubLink(hub, inside);
+
+    expect(result.action).toBe("skipped-inside-hub");
+    expect(existsSync(inside)).toBe(false);
+  });
+
+  it("refuse aussi le cas réellement observé, deux niveaux plus bas", () => {
+    // Le chemin exact de la boucle du 24/08 : une session ouverte dans le
+    // dossier memory/ du hub, qui est lui-même la cible d'une jonction.
+    const inside = join(hub, "memory", ".claude", "memory");
+    mkdirSync(join(hub, "memory", ".claude"), { recursive: true });
+
+    const result = ensureHubLink(hub, inside);
+
+    expect(result.action).toBe("skipped-inside-hub");
+    expect(existsSync(inside)).toBe(false);
+  });
+
+  it("ne confond pas un dossier VOISIN dont le nom commence pareil", () => {
+    // Garde anti-comparaison de préfixe : "<root>/hub-autre" n'est pas "sous"
+    // "<root>/hub" et doit rester liable normalement.
+    const neighbour = join(root, "hub-autre");
+    mkdirSync(neighbour, { recursive: true });
+    const link = join(neighbour, "memory");
+
+    expect(ensureHubLink(hub, link).action).toBe("created");
+    expect(inspectLink(link, hub)).toBe("ok");
+  });
+});

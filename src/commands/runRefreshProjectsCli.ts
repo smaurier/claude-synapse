@@ -10,6 +10,7 @@ const LINK_ACTION_LABELS: Record<string, string> = {
   created: "lien créé",
   recreated: "recréé (mauvaise cible ou cassé)",
   "recreated-after-backup": "sauvegarde + lien créé",
+  "skipped-inside-hub": "ignoré — ce chemin est DANS le hub (une jonction y pointerait sur son propre ancêtre)",
 };
 
 async function main(): Promise<void> {
