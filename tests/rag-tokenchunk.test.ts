@@ -44,3 +44,48 @@ describe("chunkFileByTokens", () => {
     expect(charTokenizer.decode(ids.slice(-lastIds.length))).toBe(last.text);
   });
 });
+
+// Ajouté 03/10 : constaté sur le vrai hub via /brain-lint. Quatre mémoires
+// sans le moindre rapport (project_tribuzen, project_stockage_photos,
+// reference_hub_projets, reference_postes — zéro ligne en commun) sortaient
+// appariées à une similarité de 1.000. Cause : chacune se terminait par un
+// chunk d'UN caractère, « . ». Embarquer le même « . » donne forcément le
+// même vecteur, donc un cosinus de 1 — un faux doublon parfait, fabriqué de
+// toutes pièces par le découpage.
+//
+// Ces miettes ne portent aucune information NOUVELLE : une fenêtre dont il
+// reste moins que le recouvrement est déjà entièrement contenue dans la
+// précédente. On ne les coupe donc pas sur une longueur minimale arbitraire,
+// on arrête quand il n'y a plus rien d'inédit à couvrir.
+describe("chunkFileByTokens — miettes de fin de fichier", () => {
+  it("n'émet pas de fenêtre finale entièrement couverte par le recouvrement de la précédente", () => {
+    // 257 tokens, fenêtre 256, pas 226 : la 2e fenêtre démarrerait à 226 et
+    // ne couvrirait que 31 tokens, dont 30 déjà vus. Sans garde, la 3e
+    // démarrerait à 452 > 257 — mais le vrai cas est le résidu d'un token.
+    const content = "x".repeat(257);
+    const chunks = chunkFileByTokens("tail.md", content, charTokenizer, 256, 30);
+
+    for (const c of chunks) {
+      expect(charTokenizer.encode(c.text).length).toBeGreaterThan(30);
+    }
+  });
+
+  it("le cas réel : un résidu d'un seul token n'est jamais émis comme chunk", () => {
+    // Longueur choisie pour que la dernière fenêtre ne porte qu'un token.
+    const stride = 256 - 30;
+    const content = "y".repeat(stride * 2 + 1);
+    const chunks = chunkFileByTokens("tail.md", content, charTokenizer, 256, 30);
+
+    const tiny = chunks.filter((c) => charTokenizer.encode(c.text).length <= 1);
+    expect(tiny).toEqual([]);
+  });
+
+  it("couvre toujours la fin du contenu malgré le garde", () => {
+    const content = "z".repeat(257);
+    const ids = charTokenizer.encode(content);
+    const chunks = chunkFileByTokens("tail.md", content, charTokenizer, 256, 30);
+    const last = chunks[chunks.length - 1]!;
+    const lastIds = charTokenizer.encode(last.text);
+    expect(charTokenizer.decode(ids.slice(-lastIds.length))).toBe(last.text);
+  });
+});

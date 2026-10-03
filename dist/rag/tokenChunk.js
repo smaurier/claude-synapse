@@ -23,6 +23,16 @@ export function chunkFileByTokens(path, content, tokenizer, maxTokens, overlapTo
     let start = 0;
     let index = 0;
     while (start < ids.length) {
+        // A window whose remaining tokens are all within the previous window's
+        // overlap carries nothing new: the previous window already reached
+        // start + overlapTokens. Emitting it anyway produces end-of-file crumbs
+        // — on the real hub, four unrelated memories each ended with a
+        // one-character chunk ".", which embeds to the same vector every time
+        // and surfaced as perfect-similarity merge candidates (found 03/10 via
+        // /brain-lint). The guard is exact, not a minimum-length heuristic:
+        // it drops only what is already covered.
+        if (index > 0 && ids.length - start <= overlapTokens)
+            break;
         const windowIds = ids.slice(start, start + maxTokens);
         chunks.push({
             chunkId: `${path}#${index}`,
