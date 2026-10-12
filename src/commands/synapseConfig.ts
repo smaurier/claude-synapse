@@ -65,3 +65,51 @@ export async function setSynapseConfig(pluginDataDir: string, key: string, rawVa
     releaseLock(local.hubClonePath, local.machineId);
   }
 }
+
+/**
+ * Removes a machine from the hub's device registry (12/10/2026).
+ *
+ * `recordMachineSeen` only ever added, and `knownMachines` is deliberately
+ * absent from EDITABLE_KEYS (it is machine-managed, like lastAuditAt), so a
+ * retired machine — handed back, its git-crypt key revoked — stayed listed
+ * with no command able to remove it. The only way left was hand-editing the
+ * hub's config.json, the exact thing /synapse-config exists to avoid.
+ *
+ * Locked, unlike recordMachineSeen: that one tolerates a lost update because
+ * a stale timestamp self-corrects next session, whereas a lost update here
+ * would silently resurrect the entry we just removed.
+ */
+export async function forgetMachine(pluginDataDir: string, machineId: string): Promise<SharedConfig> {
+  const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
+
+  if (machineId === local.machineId) {
+    throw new Error(
+      `synapse: "${machineId}" est ce poste — le hook SessionStart le réinscrirait à la prochaine session. ` +
+        `Retirer un poste depuis un autre poste (ou le retirer en dernier, après avoir fini d'utiliser celui-ci).`,
+    );
+  }
+
+  const lockResult = acquireLock(local.hubClonePath, local.machineId, DEFAULT_SHARED_CONFIG.lockTimeoutMinutes);
+  if (!lockResult.acquired) {
+    throw new Error(
+      `synapse: verrou du hub déjà détenu par "${lockResult.heldBy}" depuis ${lockResult.since} — réessayer dans un instant.`,
+    );
+  }
+  try {
+    const current = readSharedConfig(local.hubClonePath);
+    if (!Object.hasOwn(current.knownMachines, machineId)) {
+      const known = Object.keys(current.knownMachines);
+      throw new Error(
+        `synapse: poste "${machineId}" inconnu du registre — rien retiré. ` +
+          `Postes connus : ${known.length > 0 ? known.join(", ") : "aucun"}.`,
+      );
+    }
+
+    const { [machineId]: _removed, ...remaining } = current.knownMachines;
+    const updated: SharedConfig = { ...current, knownMachines: remaining };
+    writeSharedConfig(local.hubClonePath, updated);
+    return updated;
+  } finally {
+    releaseLock(local.hubClonePath, local.machineId);
+  }
+}

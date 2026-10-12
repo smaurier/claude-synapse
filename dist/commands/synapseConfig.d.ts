@@ -19,3 +19,17 @@ export declare const STRING_LIST_EDITABLE_KEYS: readonly ["refreshProjectsExclus
 export declare const EDITABLE_KEYS: readonly ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit", "mergeCandidatesMaxFiles", "refreshProjectsExclusions", "marketWatchExtraSources", "refreshProjectsRoots"];
 export declare function showSynapseConfig(pluginDataDir: string): Promise<SharedConfig>;
 export declare function setSynapseConfig(pluginDataDir: string, key: string, rawValue: string): Promise<SharedConfig>;
+/**
+ * Removes a machine from the hub's device registry (12/10/2026).
+ *
+ * `recordMachineSeen` only ever added, and `knownMachines` is deliberately
+ * absent from EDITABLE_KEYS (it is machine-managed, like lastAuditAt), so a
+ * retired machine — handed back, its git-crypt key revoked — stayed listed
+ * with no command able to remove it. The only way left was hand-editing the
+ * hub's config.json, the exact thing /synapse-config exists to avoid.
+ *
+ * Locked, unlike recordMachineSeen: that one tolerates a lost update because
+ * a stale timestamp self-corrects next session, whereas a lost update here
+ * would silently resurrect the entry we just removed.
+ */
+export declare function forgetMachine(pluginDataDir: string, machineId: string): Promise<SharedConfig>;
