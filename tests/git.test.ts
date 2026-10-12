@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -212,4 +212,74 @@ describeWithGitCrypt("unlockGitCryptIfPresent", () => {
 
     expect(readFileSync(join(clone, "secret.md"), "utf8")).toBe("contenu secret\n");
   }, 15_000);
+
+  /** Reproduit le cas réel rencontré le 12/10/2026 en initialisant Synapse sur
+   *  un poste neuf : le hub est déverrouillé par la CLÉ SYMÉTRIQUE (sortie
+   *  d'un coffre), et ce poste n'a aucune clé secrète GPG correspondant aux
+   *  collaborateurs enrôlés dans le dépôt.
+   *
+   *  Le garde d'origine ne regardait que `.git-crypt/`, présent dans tout hub
+   *  chiffré qu'il soit verrouillé ou non. `git-crypt unlock` était donc
+   *  relancé sur un dépôt déjà lisible ; il commence par interroger `gpg`,
+   *  échouait faute de clé secrète, et imprimait un diagnostic alarmant
+   *  ("n'a pas pu être déverrouillé automatiquement") à la fin d'un
+   *  /synapse-init par ailleurs réussi — donnant à lire un échec là où tout
+   *  allait bien. Un dépôt déjà déverrouillé n'a simplement rien à faire ici.
+   */
+  function unlockedBySymmetricKey(name: string): string {
+    const seed = seedGitCryptRepo();
+    const keyFile = join(gcRoot, name + ".key");
+    execFileSync("git-crypt", ["export-key", keyFile], { cwd: seed, stdio: "pipe" });
+
+    const clone = join(gcRoot, name);
+    git(["clone", "-q", seed, clone], gcRoot);
+    execFileSync("git-crypt", ["unlock", keyFile], { cwd: clone, stdio: "pipe" });
+    return clone;
+  }
+
+  /** Rend la clé secrète GPG indisponible, sans toucher au dépôt : c'est la
+   *  situation d'un poste déverrouillé par clé symétrique et jamais enrôlé. */
+  async function withoutGpgSecretKey<T>(fn: () => Promise<T>): Promise<T> {
+    const emptyHome = join(gcRoot, "gnupg-sans-cle");
+    mkdirSync(emptyHome, { recursive: true });
+    const previous = process.env.GNUPGHOME;
+    process.env.GNUPGHOME = toGpgHomePath(emptyHome);
+    try {
+      return await fn();
+    } finally {
+      if (previous === undefined) delete process.env.GNUPGHOME;
+      else process.env.GNUPGHOME = previous;
+    }
+  }
+
+  it("n'alarme pas sur un clone déjà déverrouillé par clé symétrique, sans clé GPG utilisable", async () => {
+    const clone = unlockedBySymmetricKey("clone-sym");
+    expect(readFileSync(join(clone, "secret.md"), "utf8")).toBe("contenu secret\n");
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await withoutGpgSecretKey(() => unlockGitCryptIfPresent(clone));
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(readFileSync(join(clone, "secret.md"), "utf8")).toBe("contenu secret\n");
+  }, 20_000);
+
+  /** Non-régression de l'autre sens : le garde porte sur "déjà déverrouillé",
+   *  pas sur "git-crypt est présent". Un clone re-verrouillé entre-temps doit
+   *  redonner lieu à une tentative — et donc, faute de clé, au diagnostic. */
+  it("retente, et diagnostique, sur un clone re-verrouillé entre-temps", async () => {
+    const clone = unlockedBySymmetricKey("clone-relock");
+    execFileSync("git-crypt", ["lock"], { cwd: clone, stdio: "pipe" });
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await withoutGpgSecretKey(() => unlockGitCryptIfPresent(clone));
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  }, 20_000);
 });

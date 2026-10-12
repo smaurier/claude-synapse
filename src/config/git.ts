@@ -45,6 +45,13 @@ function normalizeRemote(url: string): string {
  *  function existed. Exported for direct testing. */
 export async function unlockGitCryptIfPresent(hubClonePath: string): Promise<void> {
   if (!existsSync(join(hubClonePath, ".git-crypt"))) return;
+  // Déjà déverrouillé : la clé symétrique du dépôt est posée là par unlock,
+  // et retirée par `git-crypt lock`. Ne rien tenter alors (12/10/2026) —
+  // `.git-crypt/` seul ne distingue pas verrouillé de déverrouillé, et
+  // `git-crypt unlock` commence par interroger gpg : sur un poste déverrouillé
+  // par clé symétrique et jamais enrôlé en GPG, il échouait et imprimait un
+  // diagnostic alarmant à la fin d'un /synapse-init par ailleurs réussi.
+  if (existsSync(join(hubClonePath, ".git", "git-crypt", "keys", "default"))) return;
   try {
     await execFileAsync("git-crypt", ["unlock"], { cwd: hubClonePath });
   } catch (err) {
