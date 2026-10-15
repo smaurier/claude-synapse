@@ -24,6 +24,21 @@ metadata:
 Contenu.
 `;
 
+// The index and its sub-indexes carry no frontmatter by convention: they
+// are a table of contents, not a memory.
+const INDEX_WITHOUT_FRONTMATTER = `# Memory Index
+
+- [Profil general](user_profile.md) — accroche
+`;
+
+// A journal-shaped fiche (5 dated sections, above the threshold), with a
+// head section placed either before or after them.
+function journalWithHead(head: string, { atEnd = false } = {}): string {
+  const sections = Array.from({ length: 5 }, (_, i) => `## S${i} — 14/0${i + 1}\ncontenu`).join("\n");
+  const body = atEnd ? `${sections}\n${head}\nx` : `${head}\nx\n${sections}`;
+  return `---\nname: x\ndescription: x\nmetadata:\n  type: reference\n---\n\n${body}`;
+}
+
 describe("extractFrontmatter", () => {
   it("parses top-level and nested fields", () => {
     const fm = extractFrontmatter(VALID_PROJECT);
@@ -100,6 +115,21 @@ metadata:
     expect(findings[0]?.message).toContain("dépassé");
   });
 
+  // Backlog item 41 (13/10): until now, an unparseable expiry was only
+  // ever visible because checkWipLimit counted it as active. Item 41 stops
+  // counting it there, so the defect needs its own warning where the rest
+  // of the frontmatter is already validated — otherwise a typo'd date
+  // becomes invisible to every check.
+  it("flags an expires that is neither a date nor a known literal", () => {
+    const findings = lintFile("typo.md", VALID_PROJECT.replace("2026-12-31", "pas-une-date"));
+    expect(findings.some((f) => f.message.includes("illisible"))).toBe(true);
+  });
+
+  it("does not flag expires: closed as unreadable", () => {
+    const findings = lintFile("clos.md", VALID_PROJECT.replace("2026-12-31", "closed"));
+    expect(findings).toEqual([]);
+  });
+
   it("does not flag expires: ongoing as expired", () => {
     const findings = lintFile("x.md", VALID_PROJECT.replace("2026-12-31", "ongoing"), new Date("2030-01-01"));
     expect(findings).toEqual([]);
@@ -118,6 +148,26 @@ metadata:
     const findings = lintFile("journal.md", content);
     expect(findings.some((f) => f.message.includes("journal narratif"))).toBe(true);
   });
+
+  // Backlog item 42 (13/10): the check counts dated sections, so it kept
+  // re-flagging the four fiches that had already been given the exact
+  // remedy its own message recommends — a head "État courant" section. A
+  // report that cannot tell a treated fiche from an untreated one is
+  // unusable as a work queue.
+  it("does not flag journal-style when a head État courant section is present", () => {
+    const findings = lintFile("traitee.md", journalWithHead("## État courant (au 13/10/2026)"));
+    expect(findings.some((f) => f.message.includes("journal narratif"))).toBe(false);
+  });
+
+  it("recognises the head section even without its accent", () => {
+    const findings = lintFile("traitee.md", journalWithHead("## Etat courant"));
+    expect(findings.some((f) => f.message.includes("journal narratif"))).toBe(false);
+  });
+
+  it("still flags journal-style when État courant sits below the dated sections", () => {
+    const findings = lintFile("journal.md", journalWithHead("## État courant", { atEnd: true }));
+    expect(findings.some((f) => f.message.includes("journal narratif"))).toBe(true);
+  });
 });
 
 describe("lintCorpus", () => {
@@ -128,6 +178,33 @@ describe("lintCorpus", () => {
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0]?.path).toBe("cassé.md");
+  });
+
+  // Backlog item 37 (13/10): the index carries no frontmatter by
+  // convention, so linting it as a memory produced the single `[error]`
+  // of a 257-line report — an error that masked the fact that the corpus
+  // held no real one.
+  it("does not lint MEMORY.md, which carries no frontmatter by convention", () => {
+    const findings = lintCorpus([
+      { path: "MEMORY.md", content: INDEX_WITHOUT_FRONTMATTER },
+      { path: "ok.md", content: VALID_REFERENCE },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("does not lint a sub-index either (MEMORY-dormant.md)", () => {
+    const findings = lintCorpus([
+      { path: "MEMORY-dormant.md", content: INDEX_WITHOUT_FRONTMATTER },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("still lints a real memory whose name merely contains the word memory", () => {
+    const findings = lintCorpus([
+      { path: "project_memory_hub.md", content: "pas de frontmatter" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.severity).toBe("error");
   });
 });
 
@@ -368,45 +445,83 @@ describe("checkWipLimit", () => {
     };
   }
 
+  const TODAY = new Date("2026-08-14");
+  const FUTURE = "2027-12-31";
+
+  function datedProjects(count: number): { path: string; content: string }[] {
+    return Array.from({ length: count }, (_, i) => projectFile(`p${i}.md`, FUTURE));
+  }
+
   it("returns nothing when under the limit", () => {
-    const files = [projectFile("a.md", "ongoing"), projectFile("b.md", "ongoing")];
-    expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+    expect(checkWipLimit(datedProjects(2), TODAY, 5)).toEqual([]);
   });
 
-  it("flags when over the limit, naming the active projects", () => {
-    const files = Array.from({ length: 6 }, (_, i) => projectFile(`p${i}.md`, "ongoing"));
-    const findings = checkWipLimit(files, new Date("2026-08-14"), 5);
+  it("flags when the dated deadlines exceed the limit", () => {
+    const findings = checkWipLimit(datedProjects(6), TODAY, 5);
     expect(findings).toHaveLength(1);
-    expect(findings[0]?.message).toContain("6 mémoires");
+    expect(findings[0]?.message).toContain("6 projets");
+  });
+
+  // Backlog item 41 (13/10): on a real hub the count read "109 projects
+  // active, indicative limit 5" and then listed all 109 paths, which is
+  // unreadable and therefore unactionable. The 109 mixed three populations:
+  // 52 `ongoing` (permanent by design, they will never be closed), 38 with
+  // no `expires` at all, and 19 with a real future deadline. Proof the count
+  // measured nothing useful: closing 10 fiches did not move it by one unit,
+  // while flipping 3 dormant fiches to `ongoing` pushed it from 106 to 109.
+  it("does not count `expires: ongoing` toward the limit, being permanent by design", () => {
+    const files = Array.from({ length: 6 }, (_, i) => projectFile(`perm${i}.md`, "ongoing"));
+    expect(checkWipLimit(files, TODAY, 5)).toEqual([]);
+  });
+
+  it("does not count a project with no expires field toward the limit", () => {
+    const files = Array.from({ length: 6 }, (_, i) => ({
+      path: `sans${i}.md`,
+      content: `---\nname: x\ndescription: x\nmetadata:\n  type: project\n  created: 2026-01-01\n---\n`,
+    }));
+    expect(checkWipLimit(files, TODAY, 5)).toEqual([]);
+  });
+
+  it("names the three populations in the message instead of lumping them together", () => {
+    const files = [
+      ...datedProjects(6),
+      projectFile("perm.md", "ongoing"),
+      projectFile("perm2.md", "ongoing"),
+      { path: "sans.md", content: `---\nname: x\ndescription: x\nmetadata:\n  type: project\n---\n` },
+    ];
+    const message = checkWipLimit(files, TODAY, 5)[0]?.message ?? "";
+    expect(message).toContain("6 projets");
+    expect(message).toContain("2 en `expires: ongoing`");
+    expect(message).toContain("1 sans `expires`");
+  });
+
+  it("lists only the dated projects, not every project in the corpus", () => {
+    const files = [...datedProjects(6), projectFile("perm.md", "ongoing")];
+    const message = checkWipLimit(files, TODAY, 5)[0]?.message ?? "";
+    expect(message).toContain("p0.md");
+    expect(message).not.toContain("perm.md");
   });
 
   it("does not count expired projects toward the limit", () => {
-    const files = [
-      ...Array.from({ length: 5 }, (_, i) => projectFile(`p${i}.md`, "ongoing")),
-      projectFile("vieux.md", "2020-01-01"), // long expired, shouldn't count
-    ];
-    expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+    const files = [...datedProjects(5), projectFile("vieux.md", "2020-01-01")];
+    expect(checkWipLimit(files, TODAY, 5)).toEqual([]);
   });
 
   it("does not count `expires: closed` toward the limit", () => {
-    // Real-world trigger: `new Date("closed")` is Invalid Date, and an
-    // unparseable expiry used to default to "active" — the opposite of what
-    // writing "closed" means. Only this exact literal gets the alias; any
-    // other unparseable string still defaults to active (a typo'd date
-    // shouldn't silently vanish from the count).
-    const files = [
-      ...Array.from({ length: 5 }, (_, i) => projectFile(`p${i}.md`, "ongoing")),
-      projectFile("clos.md", "closed"),
-    ];
-    expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+    // `new Date("closed")` is Invalid Date, and an unparseable expiry used to
+    // default to "active" — the opposite of what writing "closed" means.
+    const files = [...datedProjects(5), projectFile("clos.md", "closed")];
+    expect(checkWipLimit(files, TODAY, 5)).toEqual([]);
   });
 
-  it("still counts a genuinely unparseable (non-'closed') expiry as active", () => {
-    const files = [
-      ...Array.from({ length: 4 }, (_, i) => projectFile(`p${i}.md`, "ongoing")),
-      projectFile("typo.md", "pas-une-date"),
-    ];
-    expect(checkWipLimit(files, new Date("2026-08-14"), 4)).toHaveLength(1);
+  it("does not count an unreadable expiry toward the limit", () => {
+    // It used to count, which was the only thing that made a typo'd date
+    // visible anywhere. The limit now means "deadlines I signed up for", so
+    // a malformed field is not one of them — lintFile reports it per-file
+    // instead (see "flags an expires that is neither a date nor a known
+    // literal"), so the signal is kept rather than moved out of reach.
+    const files = [...datedProjects(5), projectFile("typo.md", "pas-une-date")];
+    expect(checkWipLimit(files, TODAY, 5)).toEqual([]);
   });
 
   it("ignores non-project memories entirely", () => {

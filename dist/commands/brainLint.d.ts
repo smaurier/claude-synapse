@@ -26,10 +26,23 @@ export declare function lintCorpus(files: {
     content: string;
 }[], today?: Date): LintFinding[];
 /**
- * WIP limiter (périmètre IN) — counts `project`-type memories that are
- * currently active (expires: ongoing, or a future date) and flags it as a
- * single corpus-wide finding if over the limit. Deliberately a count, not
- * a judgment call about which projects to close — that's for the user.
+ * WIP limiter (périmètre IN) — counts `project`-type memories that carry a
+ * deadline still ahead of them, and flags it as a single corpus-wide finding
+ * if over the limit. Deliberately a count, not a judgment call about which
+ * projects to close — that's for the user.
+ *
+ * Backlog item 41 (13/10/2026): it used to count every project that wasn't
+ * demonstrably finished, which on a real hub read "109 mémoires project
+ * actives (limite indicative : 5)" followed by all 109 paths. Unreadable,
+ * therefore unactionable, and measuring three different things at once: 52
+ * `ongoing` (permanent by design, they will never be closed), 38 with no
+ * `expires` at all, 19 with a real future deadline. Proof that the number
+ * said nothing: closing 10 fiches did not move it by a single unit, while
+ * flipping 3 dormant fiches to `ongoing` took it from 106 to 109 — and a
+ * limit of 5 is unreachable by construction while the 52 permanent ones are
+ * in the count. Only dated deadlines count now; the other populations are
+ * named in the message, and "project without `expires`" is a convention
+ * defect already reported per-file by lintFile, not a workload.
  */
 export declare function checkWipLimit(files: {
     path: string;
