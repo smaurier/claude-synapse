@@ -303,6 +303,23 @@ export type DuplicateCandidate =
   | { a: string; b: string; rule: "verbatim"; containment: number; shingleSize: number };
 
 /**
+ * Rend la preuve structurée d'un `DuplicateCandidate` en une phrase lisible —
+ * nomme toujours la règle qui a déclenché (critère falsifiable de la spec de
+ * l'item 44). Narrowed sur `rule` plutôt que castée, pour qu'une troisième
+ * règle future soit une erreur de compilation ici jusqu'à être prise en
+ * compte. Partagée par les deux CLI (`runBrainLintCli.ts`, `synapseDoctorCli.ts`),
+ * qui avaient chacune leur copie avant l'item 44 — déplacée ici pour être
+ * testable, une entrée CLI ne pouvant pas être importée par un test.
+ */
+export function formatDuplicateCandidate(c: DuplicateCandidate): string {
+  if (c.rule === "slug") {
+    return `[doublon probable] ${c.a} <-> ${c.b} (même radical \`${c.stem}\`)`;
+  }
+  const percent = Math.round(c.containment * 100);
+  return `[doublon probable] ${c.a} <-> ${c.b} (${percent} % des suites de ${c.shingleSize} mots de la plus courte se retrouvent dans l'autre)`;
+}
+
+/**
  * Règle A de l'item 44 : deux fiches distinctes au même radical traitent le
  * même sujet sous deux étiquettes. Mesurée sur le hub réel (222 fiches) : 1
  * paire, qui était le seul vrai doublon identifié à la main, zéro faux

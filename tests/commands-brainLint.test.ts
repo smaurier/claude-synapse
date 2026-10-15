@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, containment, findDuplicateCandidates } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, containment, findDuplicateCandidates, formatDuplicateCandidate } from "../src/commands/brainLint.js";
 
 const VALID_REFERENCE = `---
 name: exemple
@@ -614,5 +614,22 @@ describe("findDuplicateCandidates", () => {
     expect(pairs[0]).toMatchObject({ rule: "verbatim", shingleSize: 8 });
     expect(pairs[0]?.containment).toBeCloseTo(expectedContainment, 10);
     expect(expectedContainment).toBeGreaterThan(0.3); // sinon le test ne prouverait rien
+  });
+});
+
+describe("formatDuplicateCandidate", () => {
+  it("nomme le radical sur la branche slug", () => {
+    const line = formatDuplicateCandidate({ a: "project_x.md", b: "reference_x.md", rule: "slug", stem: "x" });
+    expect(line).toBe("[doublon probable] project_x.md <-> reference_x.md (même radical `x`)");
+  });
+
+  it("rend le containment en pourcentage arrondi avec la taille de shingle, sur la branche verbatim", () => {
+    const line = formatDuplicateCandidate({ a: "a.md", b: "b.md", rule: "verbatim", containment: 0.556, shingleSize: 8 });
+    expect(line).toBe("[doublon probable] a.md <-> b.md (56 % des suites de 8 mots de la plus courte se retrouvent dans l'autre)");
+  });
+
+  it("arrondit le containment plutôt que de le tronquer (0.555 -> 56 %, pas 55 %)", () => {
+    const line = formatDuplicateCandidate({ a: "a.md", b: "b.md", rule: "verbatim", containment: 0.555, shingleSize: 8 });
+    expect(line).toContain("56 %");
   });
 });
