@@ -41,9 +41,47 @@ export function extractFrontmatter(content) {
     return { fields };
 }
 const VALID_TYPES = ["user", "feedback", "project", "reference"];
+/** Status alias accepted in place of a date (convention of backlog item 24). */
+const EXPIRES_CLOSED = "closed";
 const DIVISION_LINE_THRESHOLD = 150;
 const DIVISION_SECTION_THRESHOLD = 4;
 const JOURNAL_DATE_HEADER_THRESHOLD = 4;
+/** One source for "this `##` heading carries a date", used both to count
+ *  them (global flag) and to locate the first one (no flag). */
+const DATED_HEADER_SOURCE = String.raw `^##\s.*\d{2}[/-]\d{2}([/-]\d{2,4})?`;
+function isCurrentStateHeading(heading) {
+    const text = heading
+        .replace(/^#+\s*/, "")
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .toLowerCase();
+    return text.startsWith("etat courant");
+}
+/**
+ * Backlog item 42 (13/10/2026): the journal heuristic counts dated sections,
+ * so it kept re-flagging fiches that had already been given the very remedy
+ * its message recommends ("envisager une consolidation en état courant").
+ * Four fiches of a real hub were consolidated on 13/10 and all four came
+ * back identical at the next run, with the total unchanged at 15 — a report
+ * that cannot tell a treated fiche from an untreated one is not a work
+ * queue, it is 15 lines to re-read every time.
+ *
+ * The head section is recognised by position, not by content: it has to come
+ * before any other dated section. A "État courant" paragraph buried under
+ * ten dated entries is exactly the journal shape this check is meant to
+ * catch, so it must keep firing. The heading itself usually carries its own
+ * date ("## État courant (au 13/10/2026)"), hence the self-exclusion when
+ * looking for the first dated section.
+ */
+function hasConsolidatedHeadSection(content) {
+    const headings = content.split("\n").filter((line) => /^##\s/.test(line));
+    const headIndex = headings.findIndex(isCurrentStateHeading);
+    if (headIndex === -1)
+        return false;
+    const datedHeader = new RegExp(DATED_HEADER_SOURCE);
+    const firstOtherDated = headings.findIndex((h, i) => i !== headIndex && datedHeader.test(h));
+    return firstOtherDated === -1 || headIndex < firstOtherDated;
+}
 /** One file's checks — frontmatter validity, expiry, and the two
  *  structural heuristics. Pure, fast, no model needed. */
 export function lintFile(path, content, today = new Date()) {
@@ -71,9 +109,16 @@ export function lintFile(path, content, today = new Date()) {
         if (!expires) {
             findings.push({ path, severity: "warning", message: "type feedback/project sans `metadata.expires` (convention datée)." });
         }
-        else if (expires !== "ongoing") {
+        else if (expires !== "ongoing" && expires !== EXPIRES_CLOSED) {
             const expiryDate = new Date(expires);
-            if (!Number.isNaN(expiryDate.getTime()) && expiryDate < today) {
+            if (Number.isNaN(expiryDate.getTime())) {
+                // Item 41: this used to be visible only as a side effect of
+                // checkWipLimit counting an unparseable expiry as active. That count
+                // is gone, so the defect is reported here, where the field is
+                // already being validated.
+                findings.push({ path, severity: "warning", message: `\`expires: ${expires}\` illisible — attendu une date ISO, \`ongoing\` ou \`${EXPIRES_CLOSED}\`.` });
+            }
+            else if (expiryDate < today) {
                 findings.push({ path, severity: "warning", message: `\`expires\` dépassé (${expires}) — à vérifier, pas à supprimer sans confirmation.` });
             }
         }
@@ -87,8 +132,8 @@ export function lintFile(path, content, today = new Date()) {
             message: `candidat division : ${lineCount} lignes, ${sectionCount} sections — heuristique longueur+structure, à confirmer manuellement.`,
         });
     }
-    const dateHeaderCount = (content.match(/^##\s.*\d{2}[/-]\d{2}([/-]\d{2,4})?/gm) ?? []).length;
-    if (dateHeaderCount >= JOURNAL_DATE_HEADER_THRESHOLD) {
+    const dateHeaderCount = (content.match(new RegExp(DATED_HEADER_SOURCE, "gm")) ?? []).length;
+    if (dateHeaderCount >= JOURNAL_DATE_HEADER_THRESHOLD && !hasConsolidatedHeadSection(content)) {
         findings.push({
             path,
             severity: "warning",
@@ -97,39 +142,80 @@ export function lintFile(path, content, today = new Date()) {
     }
     return findings;
 }
+/**
+ * Backlog item 37 (13/10/2026): the index (`MEMORY.md`) and its sub-indexes
+ * (`MEMORY-dormant.md`, ...) are a table of contents, not memories — they
+ * carry no frontmatter by convention. Linting them as memories produced the
+ * single `[error]` of a 257-line report on a real hub, and that one fake
+ * error masked the fact that no memory in the corpus had a real one.
+ * Matched on the basename, so a nested index is covered too: the uppercase
+ * spelling is the convention and memory slugs are lowercase kebab-case, so
+ * a real memory never collides with it.
+ */
+function isIndexFile(path) {
+    const basename = path.split("/").pop() ?? path;
+    return basename === "MEMORY.md" || /^MEMORY-.+\.md$/.test(basename);
+}
 export function lintCorpus(files, today = new Date()) {
-    return files.flatMap((f) => lintFile(f.path, f.content, today));
+    return files.filter((f) => !isIndexFile(f.path)).flatMap((f) => lintFile(f.path, f.content, today));
 }
 const DEFAULT_WIP_LIMIT = 5;
 /**
- * WIP limiter (périmètre IN) — counts `project`-type memories that are
- * currently active (expires: ongoing, or a future date) and flags it as a
- * single corpus-wide finding if over the limit. Deliberately a count, not
- * a judgment call about which projects to close — that's for the user.
+ * WIP limiter (périmètre IN) — counts `project`-type memories that carry a
+ * deadline still ahead of them, and flags it as a single corpus-wide finding
+ * if over the limit. Deliberately a count, not a judgment call about which
+ * projects to close — that's for the user.
+ *
+ * Backlog item 41 (13/10/2026): it used to count every project that wasn't
+ * demonstrably finished, which on a real hub read "109 mémoires project
+ * actives (limite indicative : 5)" followed by all 109 paths. Unreadable,
+ * therefore unactionable, and measuring three different things at once: 52
+ * `ongoing` (permanent by design, they will never be closed), 38 with no
+ * `expires` at all, 19 with a real future deadline. Proof that the number
+ * said nothing: closing 10 fiches did not move it by a single unit, while
+ * flipping 3 dormant fiches to `ongoing` took it from 106 to 109 — and a
+ * limit of 5 is unreachable by construction while the 52 permanent ones are
+ * in the count. Only dated deadlines count now; the other populations are
+ * named in the message, and "project without `expires`" is a convention
+ * defect already reported per-file by lintFile, not a workload.
  */
 export function checkWipLimit(files, today = new Date(), limit = DEFAULT_WIP_LIMIT) {
-    const activeProjects = files.filter((f) => {
+    const dated = [];
+    let ongoing = 0;
+    let undated = 0;
+    for (const f of files) {
         const fm = extractFrontmatter(f.content);
         if (fm?.fields["metadata.type"] !== "project")
-            return false;
+            continue;
         const expires = fm.fields["metadata.expires"];
-        if (!expires)
-            return true; // no expiry set at all — still counts as active
-        if (expires === "ongoing")
-            return true;
-        if (expires === "closed")
-            return false; // explicit status alias, not a date
-        const expiryDate = new Date(expires);
-        return Number.isNaN(expiryDate.getTime()) || expiryDate >= today;
-    });
-    if (activeProjects.length <= limit)
+        if (!expires) {
+            undated++;
+        }
+        else if (expires === "ongoing") {
+            ongoing++;
+        }
+        else if (expires !== EXPIRES_CLOSED) {
+            const expiryDate = new Date(expires);
+            // An unreadable expiry is not a deadline anyone signed up for; lintFile
+            // reports it as the convention defect it is.
+            if (!Number.isNaN(expiryDate.getTime()) && expiryDate >= today)
+                dated.push(f.path);
+        }
+    }
+    if (dated.length <= limit)
         return [];
+    const aside = [];
+    if (ongoing > 0)
+        aside.push(`${ongoing} en \`expires: ongoing\` (permanents par conception)`);
+    if (undated > 0)
+        aside.push(`${undated} sans \`expires\` (défaut de convention, signalé fiche par fiche)`);
     return [
         {
             path: "(corpus)",
             severity: "warning",
-            message: `${activeProjects.length} mémoires "project" actives simultanément (limite indicative : ${limit}) — ` +
-                `envisager d'en clôturer avant d'en ouvrir de nouvelles : ${activeProjects.map((f) => f.path).join(", ")}.`,
+            message: `${dated.length} projets à échéance datée encore ouverte (limite indicative : ${limit}) — ` +
+                `envisager d'en clôturer avant d'en ouvrir de nouveaux : ${dated.join(", ")}.` +
+                (aside.length > 0 ? ` Hors limite : ${aside.join(", ")}.` : ""),
         },
     ];
 }
