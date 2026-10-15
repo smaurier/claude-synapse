@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, containment, findDuplicateCandidates, formatDuplicateCandidate } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, containment, findDuplicateCandidates, formatDuplicateCandidate, VALID_TYPES } from "../src/commands/brainLint.js";
 
 const VALID_REFERENCE = `---
 name: exemple
@@ -93,6 +93,16 @@ describe("slugStem", () => {
 
   it("détecte le préfixe user", () => {
     expect(slugStem("user_mon_profil.md")).toBe("monprofil");
+  });
+
+  it("reconnaît un préfixe pour chacun des VALID_TYPES — les deux listes ne doivent jamais diverger", () => {
+    // Garde-fou de régression (item 44, point 7) : SLUG_TYPE_PREFIXES dérive
+    // de VALID_TYPES dans brainLint.ts ; ce test échoue si quelqu'un les
+    // sépare à nouveau sans mettre à jour les deux, ou ajoute un cinquième
+    // type sans que la règle de collision de slug le reconnaisse.
+    for (const type of VALID_TYPES) {
+      expect(slugStem(`${type}_sujet.md`)).toBe("sujet");
+    }
   });
 });
 

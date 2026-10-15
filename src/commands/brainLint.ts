@@ -49,7 +49,10 @@ export interface LintFinding {
   message: string;
 }
 
-const VALID_TYPES = ["user", "feedback", "project", "reference"];
+/** Les quatre types de la convention mémoire. Seule déclaration : `SLUG_TYPE_PREFIXES`
+ *  en dérive plus bas, pour qu'un cinquième type ajouté ici ne laisse pas la
+ *  règle de collision de slug aveugle à son existence. */
+export const VALID_TYPES = ["user", "feedback", "project", "reference"];
 /** Status alias accepted in place of a date (convention of backlog item 24). */
 const EXPIRES_CLOSED = "closed";
 const DIVISION_LINE_THRESHOLD = 150;
@@ -267,17 +270,29 @@ export function checkSupersessionReferences(files: { path: string; content: stri
   return findings;
 }
 
-/** Préfixes de type de la convention de nommage, dans leurs deux orthographes
- *  (`project_` et `project-`) : le hub réel contient les deux (vérifié sur le hub réel
- *  222-fiches le 15/10/2026). */
-const SLUG_TYPE_PREFIXES = ["project", "reference", "feedback", "user"];
+/** Les préfixes de nom de fichier de la règle de collision de slug : les mêmes
+ *  quatre types que `VALID_TYPES` (dont cette liste dérive, pas une copie),
+ *  dans leurs deux orthographes (`project_` et `project-` — le hub réel
+ *  contient les deux, vérifié sur le hub réel 222-fiches le 15/10/2026). */
+const SLUG_TYPE_PREFIXES: readonly string[] = VALID_TYPES;
 
 /**
- * Le radical d'un nom de fiche : son nom de fichier sans préfixe de type, sans
- * séparateurs et en minuscules. `null` pour une fiche dont le nom ne porte pas
- * un préfixe de type reconnu, auquel cas la règle de collision ne s'y applique
- * pas. Également `null` pour un radical vide (ex. `project_.md`), car il n'est
- * pas utile pour la détection de collisions.
+ * Décision délibérée (item 44) : les primitives ci-dessous (`slugStem`,
+ * `findSlugCollisions`, `comparableWords`, `shingles`, `containment`,
+ * `findVerbatimOverlaps`) sont exportées bien que seules `findDuplicateCandidates`
+ * et `DuplicateCandidate` aient un consommateur en production — tout le reste
+ * n'est atteint que par les tests. Choisi plutôt que dérivé : tester chaque
+ * règle isolément a attrapé plusieurs défauts réels pendant ce travail, et les
+ * consommateurs du plugin publié sont ses propres skills, pas des imports
+ * externes — le coût d'une surface `.d.ts` plus large est donc faible ici.
+ * `bodyWithoutFrontmatter`, plus bas, n'a aucun consommateur même en test ;
+ * elle reste interne (pas d'`export`) pour cette raison précise.
+ *
+ * Le radical d'un nom de fiche (ci-dessous) : son nom de fichier sans préfixe
+ * de type, sans séparateurs et en minuscules. `null` pour une fiche dont le
+ * nom ne porte pas un préfixe de type reconnu, auquel cas la règle de
+ * collision ne s'y applique pas. Également `null` pour un radical vide (ex.
+ * `project_.md`), car il n'est pas utile pour la détection de collisions.
  */
 export function slugStem(path: string): string | null {
   const basename = (path.split("/").pop() ?? path).replace(/\.md$/i, "").toLowerCase();
@@ -295,8 +310,8 @@ export function slugStem(path: string): string | null {
 /**
  * Une paire de fiches que l'une des deux règles signale comme doublon
  * probable, avec la preuve qui l'a fait sortir. La preuve est structurée et
- * non rédigée : c'est le rendu qui compose la phrase, comme le faisait le CLI
- * avec le score de l'ancien `MergeCandidate`.
+ * non rédigée : c'est `formatDuplicateCandidate` qui compose la phrase, pas
+ * les données elles-mêmes.
  */
 export type DuplicateCandidate =
   | { a: string; b: string; rule: "slug"; stem: string }
@@ -389,31 +404,27 @@ export function containment(a: Set<string>, b: Set<string>): number {
 }
 
 /**
- * Règle B de l'item 44 : détection de recouvrement verbatim basée sur
- * n-grammes (shingles) de mots. Deux fiches partageant un passage d'au moins
- * huit mots consécutifs signalent une possible duplication par copier-coller
- * — le seul cas où deux fiches distinctes partagent mot pour mot une séquence
- * de ce genre.
+ * Règle B de l'item 44 : recouvrement verbatim par n-grammes (shingles) de
+ * mots. Deux fiches partageant un passage d'au moins huit mots consécutifs
+ * signalent une possible duplication par copier-coller — le seul cas où deux
+ * fiches distinctes partagent mot pour mot une séquence de ce genre.
  *
  * Mesuré sur le hub réel (222 fiches, 15/10/2026) : le recouvrement maximal
- * observé entre deux fiches quelconques était 0.076 à 8-grammes, zéro paires
- * ne dépassaient 0.10 à n-grammes 6, 8 ou 12. Le seuil 0.30 laisse donc un
- * facteur 4 de marge au-dessus du plancher observé. Cette règle retourne zéro
- * paire aujourd'hui, et c'est intentionnel : elle ne suggère rien, elle garde
- * contre les doublons par copier-coller qui apparaîtraient plus tard. Partager
- * huit mots d'affilée ne survient pas par hasard. Soft spot : les shingles sont
- * dédupliqués en Set, donc deux fiches dominées par la même courte phrase
- * répétée collapse à de minuscules sets identiques et marquent 1.0 par
- * répétition plutôt que par passage partagé, mais c'est jamais observé et un
- * humain lit la suggestion de toute façon.
+ * observé entre deux fiches quelconques était 0,076 à 8-grammes. Le seuil
+ * 0,30 laisse donc un facteur 4 de marge au-dessus du plancher observé.
+ * Cette règle rend zéro paire aujourd'hui, et c'est assumé : elle existe
+ * comme garde-fou de régression contre un futur copier-coller, pas comme
+ * source de suggestions quotidiennes.
  *
- * Pas de garde-fou de taille, contrairement à l'ancien `findMergeCandidatesGuarded` :
- * aucun appel modèle, aucune I/O, juste opérations en-mémoire sur des sets
- * (O(n²) de comparaisons brutes, ~24000 sur 222 fiches, catégoriquement bon
- * marché). `findMergeCandidatesGuarded` était cher parce qu'il appelait embed()
- * par chunk pour tous les fichiers (en Promise.all), puis faisait O(n²) de
- * comparaisons cosineSimilarity sur les vecteurs déjà calculés ; ici on paie
- * zéro appel modèle par itération.
+ * Point faible connu : les shingles sont dédupliqués en Set, donc deux
+ * fiches dominées par la même courte phrase répétée se réduisent à des
+ * ensembles identiques minuscules et marquent 1.0 par répétition plutôt que
+ * par passage partagé — ce n'est jamais observé en pratique, et un humain
+ * lit la suggestion de toute façon.
+ *
+ * Remplace l'ancien détecteur par embeddings (un appel modèle par fiche) :
+ * ici, aucun appel modèle ni I/O, uniquement des opérations en mémoire sur
+ * des sets (O(n²) de comparaisons brutes, ~24 000 sur 222 fiches, bon marché).
  */
 export function findVerbatimOverlaps(files: { path: string; content: string }[]): DuplicateCandidate[] {
   const prepared = files
@@ -438,15 +449,17 @@ export function findVerbatimOverlaps(files: { path: string; content: string }[])
 }
 
 /**
- * Unordered pair key — the sort is load-bearing. The two rules do not agree on
- * pair orientation: findSlugCollisions sorts its groups, so emits pairs with
- * paths in alphabetical order; findVerbatimOverlaps mirrors input file order.
- * When the same pair is found by both rules, they may emit it with a and b
- * swapped relative to each other. The deduplication in findDuplicateCandidates
- * relies on this sort to collapse them into one candidate. (The fact that this
- * works in production also depends on an upstream accident: loadCorpus pre-sorts
- * the corpus by path, making findVerbatimOverlaps' order often match. But this
- * function must not rely on that — it owns the guarantee.)
+ * Clé de paire non ordonnée — le tri est structurant. Les deux règles ne
+ * s'accordent pas sur l'orientation de la paire : `findSlugCollisions` trie
+ * ses groupes, donc émet des paires avec les chemins en ordre alphabétique ;
+ * `findVerbatimOverlaps` reflète l'ordre d'entrée des fichiers. Quand la même
+ * paire est trouvée par les deux règles, elles peuvent l'émettre avec `a` et
+ * `b` inversés l'une par rapport à l'autre. La déduplication dans
+ * `findDuplicateCandidates` s'appuie sur ce tri pour les fondre en un seul
+ * candidat. (Que ça marche en production dépend aussi d'un hasard amont :
+ * `loadCorpus` trie déjà le corpus par chemin, ce qui fait souvent coïncider
+ * l'ordre de `findVerbatimOverlaps` — mais cette fonction ne doit pas s'appuyer
+ * là-dessus, c'est elle qui porte la garantie.)
  */
 function pairKey(candidate: DuplicateCandidate): string {
   return [candidate.a, candidate.b].sort().join(" ");
@@ -454,32 +467,24 @@ function pairKey(candidate: DuplicateCandidate): string {
 
 /**
  * Point d'entrée pour les deux rapports de détection de doublons — applique
- * deux règles déterministes (collisions de slug et recouvrements verbatim)
- * et écarte les paires ineligibles d'une seule traite, en avant des deux règles,
- * pour que la garantie soit inconditionnelle.
+ * les deux règles déterministes (collision de slug, recouvrement verbatim)
+ * et écarte les paires inéligibles en amont de toute comparaison, jamais en
+ * filtrant le résultat après coup, pour que l'exclusion soit inconditionnelle.
  *
- * Les deux règles remplacent la comparaison O(n²) par embeddings du ancien
- * `MergeCandidate`, qui mesurait l'équilibre écriture (les fiches feedback
- * partagent un bloc frontmatter et une convention rédactionnelle, pas un sujet)
- * plutôt que la vraie duplication. Les deux règles ici sont sans modèle et
- * mesurent ce qu'elles prétendent mesurer.
+ * Remplace la comparaison O(n²) par embeddings de l'ancien `MergeCandidate`,
+ * qui mesurait le registre d'écriture (les fiches feedback partagent un bloc
+ * frontmatter et une convention rédactionnelle, pas un sujet) plutôt que la
+ * vraie duplication.
  *
- * Trois raisons pour les écarter d'une traite :
- * (1) `isIndexFile`: L'index (MEMORY.md) et les sous-index sont une table des
- * matières listant toutes les fiches. Ils les resemblent toutes un peu et ne
- * peuvent jamais être fusionnés utilement.
- *
- * (2) `isProtected`: Une fiche marquée `metadata.protected: true` (un garde-fou,
- * une mémo délibérément singulière) ne doit JAMAIS être proposée pour fusion,
- * peu importe ce que les règles suggèrent. Ce n'est pas un « filtrer les résultats
- * si rien d'autre change » — l'exclusion doit être inconditionnelle. Les fiches
- * protégées sont donc écartées en amont, avant toute comparaison, plutôt que
- * filtrées des résultats après coup. C'est le seul moyen d'en faire une garantie
- * inconditionnelle plutôt que « à moins qu'un futur changement ne filtre
- * différemment ».
- *
- * (3) `supersessionTarget`: Une paire déjà liée par `metadata.superseded_by`
- * a sa relation déjà nommée et résolue. Proposer une fusion là-dessus est du bruit.
+ * Trois exclusions, appliquées avant toute comparaison :
+ * (1) `isIndexFile` : un index (MEMORY.md et sous-index) est une table des
+ * matières qui liste toutes les fiches — il ressemble donc un peu à chacune
+ * d'elles et ne peut jamais être fusionné utilement.
+ * (2) `isProtected` : une fiche `metadata.protected: true` (garde-fou,
+ * mémoire délibérément singulière) ne doit jamais être proposée en fusion,
+ * quelle que soit la ressemblance de son contenu.
+ * (3) `supersessionTarget` : une paire déjà liée par `metadata.superseded_by`
+ * a sa relation déjà nommée et résolue — la signaler à nouveau est du bruit.
  */
 export function findDuplicateCandidates(files: { path: string; content: string }[]): DuplicateCandidate[] {
   const eligible = files.filter((f) => !isIndexFile(f.path) && !isProtected(f.content));
@@ -509,8 +514,8 @@ export function findDuplicateCandidates(files: { path: string; content: string }
  * candidat doublon, quelle que soit la ressemblance de son contenu avec un
  * autre fichier. Utilisé par `findDuplicateCandidates` pour écarter ces
  * fiches en amont de toute comparaison (voir sa documentation pour le
- * raisonnement complet). Historiquement, c'était aussi l'exclusion que
- * l'ancien `findMergeCandidates` appliquait avant d'appeler le modèle.
+ * raisonnement complet). Historiquement, c'était déjà l'exclusion appliquée
+ * par l'ancien détecteur par similarité avant son appel au modèle.
  */
 function isProtected(content: string): boolean {
   const fm = extractFrontmatter(content);
@@ -542,7 +547,7 @@ function supersessionTarget(content: string): string | undefined {
  * description — and the two must never share a transformed embedding space
  * (same reasoning as the chunker note above).
  */
-export function bodyWithoutFrontmatter(content: string): string {
+function bodyWithoutFrontmatter(content: string): string {
   const withoutBom = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
   return withoutBom.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "");
 }
