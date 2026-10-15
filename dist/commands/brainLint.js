@@ -7,8 +7,6 @@
  * structure (top-level keys + one nesting level under `metadata:`), simple
  * enough to hand-parse without pulling in a dependency (léger bias).
  */
-import { cosineSimilarity } from "../rag/store.js";
-import { chunkFile } from "../rag/chunk.js";
 export function extractFrontmatter(content) {
     // Strip a leading UTF-8 BOM (U+FEFF) if present — some Windows editors/tools
     // write one, and it sits before the very first `-` the regex anchors on.
@@ -40,7 +38,10 @@ export function extractFrontmatter(content) {
     }
     return { fields };
 }
-const VALID_TYPES = ["user", "feedback", "project", "reference"];
+/** Les quatre types de la convention mémoire. Seule déclaration : `SLUG_TYPE_PREFIXES`
+ *  en dérive plus bas, pour qu'un cinquième type ajouté ici ne laisse pas la
+ *  règle de collision de slug aveugle à son existence. */
+export const VALID_TYPES = ["user", "feedback", "project", "reference"];
 /** Status alias accepted in place of a date (convention of backlog item 24). */
 const EXPIRES_CLOSED = "closed";
 const DIVISION_LINE_THRESHOLD = 150;
@@ -243,40 +244,235 @@ export function checkSupersessionReferences(files) {
     }
     return findings;
 }
+/** Les préfixes de nom de fichier de la règle de collision de slug : les mêmes
+ *  quatre types que `VALID_TYPES` (dont cette liste dérive, pas une copie),
+ *  dans leurs deux orthographes (`project_` et `project-` — le hub réel
+ *  contient les deux, vérifié sur le hub réel 222-fiches le 15/10/2026). */
+const SLUG_TYPE_PREFIXES = VALID_TYPES;
 /**
- * Merge candidates via RAG similarity — the one check that needs a real
- * embedding model, kept separate from lintFile/lintCorpus so those stay
- * fast and model-free. embed is injected (same pattern as production.ts)
- * so this stays testable with a fake; the real wiring uses embedLocal.
- * Suggestions only, as designed — this never merges anything itself.
+ * Décision délibérée (item 44) : les primitives ci-dessous (`slugStem`,
+ * `findSlugCollisions`, `comparableWords`, `shingles`, `containment`,
+ * `findVerbatimOverlaps`) sont exportées bien que seules `findDuplicateCandidates`
+ * et `DuplicateCandidate` aient un consommateur en production — tout le reste
+ * n'est atteint que par les tests. Choisi plutôt que dérivé : tester chaque
+ * règle isolément a attrapé plusieurs défauts réels pendant ce travail, et les
+ * consommateurs du plugin publié sont ses propres skills, pas des imports
+ * externes — le coût d'une surface `.d.ts` plus large est donc faible ici.
+ * `bodyWithoutFrontmatter`, plus bas, n'a aucun consommateur même en test ;
+ * elle reste interne (pas d'`export`) pour cette raison précise.
  *
- * Chunked before embedding — found 14/08 on the real 121-file hub: the
- * first version embedded each file's FULL raw content directly, silently
- * truncated by the model past its token window (embedLocal's own defensive
- * warning fired for every file over the limit — "shouldn't happen if the
- * text comes from chunkFileForEmbedding()", and it was happening, because
- * this function never called it). That meant merge candidates were
- * computed from only the first ~128 tokens of each file, not its real
- * content — a likely contributor to an implausibly large false-positive
- * count (3001 pairs at ≥0.85 on that corpus, including clearly unrelated
- * files). chunkFn defaults to the character heuristic (fast, no model) for
- * unit tests, matching production.ts's split; the real wiring uses
- * chunkFileForEmbedding — same token-exact chunker as everything else,
- * never a second, weaker chunking path.
+ * Le radical d'un nom de fiche (ci-dessous) : son nom de fichier sans préfixe
+ * de type, sans séparateurs et en minuscules. `null` pour une fiche dont le
+ * nom ne porte pas un préfixe de type reconnu, auquel cas la règle de
+ * collision ne s'y applique pas. Également `null` pour un radical vide (ex.
+ * `project_.md`), car il n'est pas utile pour la détection de collisions.
+ */
+export function slugStem(path) {
+    const basename = (path.split("/").pop() ?? path).replace(/\.md$/i, "").toLowerCase();
+    for (const prefix of SLUG_TYPE_PREFIXES) {
+        for (const separator of ["_", "-"]) {
+            if (basename.startsWith(prefix + separator)) {
+                const stem = basename.slice(prefix.length + 1).replace(/[-_]/g, "");
+                return stem === "" ? null : stem;
+            }
+        }
+    }
+    return null;
+}
+/**
+ * Rend la preuve structurée d'un `DuplicateCandidate` en une phrase lisible —
+ * nomme toujours la règle qui a déclenché (critère falsifiable de la spec de
+ * l'item 44). Narrowed sur `rule` plutôt que castée, pour qu'une troisième
+ * règle future soit une erreur de compilation ici jusqu'à être prise en
+ * compte. Partagée par les deux CLI (`runBrainLintCli.ts`, `synapseDoctorCli.ts`),
+ * qui avaient chacune leur copie avant l'item 44 — déplacée ici pour être
+ * testable, une entrée CLI ne pouvant pas être importée par un test.
+ */
+export function formatDuplicateCandidate(c) {
+    if (c.rule === "slug") {
+        return `[doublon probable] ${c.a} <-> ${c.b} (même radical \`${c.stem}\`)`;
+    }
+    const percent = Math.round(c.containment * 100);
+    return `[doublon probable] ${c.a} <-> ${c.b} (${percent} % des suites de ${c.shingleSize} mots de la plus courte se retrouvent dans l'autre)`;
+}
+/**
+ * Règle A de l'item 44 : deux fiches distinctes au même radical traitent le
+ * même sujet sous deux étiquettes. Mesurée sur le hub réel (222 fiches) : 1
+ * paire, qui était le seul vrai doublon identifié à la main, zéro faux
+ * positif. Les chemins sont triés pour que la paire soit stable d'une
+ * exécution à l'autre.
+ */
+export function findSlugCollisions(paths) {
+    const uniquePaths = Array.from(new Set(paths));
+    const byStem = new Map();
+    for (const path of uniquePaths) {
+        const stem = slugStem(path);
+        if (!stem)
+            continue;
+        const group = byStem.get(stem) ?? [];
+        group.push(path);
+        byStem.set(stem, group);
+    }
+    const candidates = [];
+    for (const [stem, group] of byStem) {
+        if (group.length < 2)
+            continue;
+        const sorted = [...group].sort();
+        for (let i = 0; i < sorted.length; i++) {
+            for (let j = i + 1; j < sorted.length; j++) {
+                candidates.push({ a: sorted[i], b: sorted[j], rule: "slug", stem });
+            }
+        }
+    }
+    return candidates;
+}
+const SHINGLE_SIZE = 8;
+const CONTAINMENT_THRESHOLD = 0.3;
+/**
+ * Le texte tel qu'on le compare : minuscules, sans accents, sans code inline,
+ * sans ponctuation ni marques markdown. L'ordre des opérations compte : le
+ * backtick (U+0060) est classé Unicode diacritic=yes, donc il est supprimé par
+ * le `.replace(/\p{Diacritic}/gu, "")` ; il faut ôter le code inline AVANT le
+ * pass diacritique, sinon les backticks disparaissent sans emporter leur contenu.
+ */
+export function comparableWords(body) {
+    return body
+        .toLowerCase()
+        .replace(/`[^`]*`/g, " ")
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .split(/\s+/)
+        .filter((word) => word.length > 0);
+}
+export function shingles(words, size) {
+    const set = new Set();
+    for (let i = 0; i + size <= words.length; i++)
+        set.add(words.slice(i, i + size).join(" "));
+    return set;
+}
+/** Intersection divisée par la taille du plus petit ensemble, et non Jaccard :
+ *  une fiche courte entièrement absorbée dans une longue doit marquer 1, ce que
+ *  Jaccard masquerait derrière la différence de taille. */
+export function containment(a, b) {
+    if (a.size === 0 || b.size === 0)
+        return 0;
+    const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+    let shared = 0;
+    for (const shingle of small)
+        if (large.has(shingle))
+            shared++;
+    return shared / small.size;
+}
+/**
+ * Règle B de l'item 44 : recouvrement verbatim par n-grammes (shingles) de
+ * mots. Deux fiches partageant un passage d'au moins huit mots consécutifs
+ * signalent une possible duplication par copier-coller — le seul cas où deux
+ * fiches distinctes partagent mot pour mot une séquence de ce genre.
  *
- * Two files are scored by the MAX similarity across any pair of their
- * chunks — "these files overlap somewhere," not "their first chunks
- * happen to be similar."
+ * Mesuré sur le hub réel (222 fiches, 15/10/2026) : le recouvrement maximal
+ * observé entre deux fiches quelconques était 0,076 à 8-grammes. Le seuil
+ * 0,30 laisse donc un facteur 4 de marge au-dessus du plancher observé.
+ * Cette règle rend zéro paire aujourd'hui, et c'est assumé : elle existe
+ * comme garde-fou de régression contre un futur copier-coller, pas comme
+ * source de suggestions quotidiennes.
  *
- * `metadata.protected: true` (backlog 16/08, étude de marché Synapse —
- * "Von Restorff" protection, mnemoverse) excludes a file from pairing
- * entirely, before any embedding call: a deliberately singular memory
- * (a garde-fou, say) must never become a merge candidate, no matter how
- * similar its content looks to another file. Excluded upstream of
- * embedding rather than filtered from the results afterward — cheaper
- * (protected files never pay the embed cost either), and it's the only
- * way to make the guarantee unconditional rather than "unless a future
- * change filters results differently".
+ * Point faible connu : les shingles sont dédupliqués en Set, donc deux
+ * fiches dominées par la même courte phrase répétée se réduisent à des
+ * ensembles identiques minuscules et marquent 1.0 par répétition plutôt que
+ * par passage partagé — ce n'est jamais observé en pratique, et un humain
+ * lit la suggestion de toute façon.
+ *
+ * Remplace l'ancien détecteur par embeddings (un appel modèle par fiche) :
+ * ici, aucun appel modèle ni I/O, uniquement des opérations en mémoire sur
+ * des sets (O(n²) de comparaisons brutes, ~24 000 sur 222 fiches, bon marché).
+ */
+export function findVerbatimOverlaps(files) {
+    const prepared = files
+        .map((f) => ({ path: f.path, shingles: shingles(comparableWords(bodyWithoutFrontmatter(f.content)), SHINGLE_SIZE) }))
+        .filter((f) => f.shingles.size > 0);
+    const candidates = [];
+    for (let i = 0; i < prepared.length; i++) {
+        for (let j = i + 1; j < prepared.length; j++) {
+            const score = containment(prepared[i].shingles, prepared[j].shingles);
+            if (score < CONTAINMENT_THRESHOLD)
+                continue;
+            candidates.push({
+                a: prepared[i].path,
+                b: prepared[j].path,
+                rule: "verbatim",
+                containment: score,
+                shingleSize: SHINGLE_SIZE,
+            });
+        }
+    }
+    return candidates;
+}
+/**
+ * Clé de paire non ordonnée — le tri est structurant. Les deux règles ne
+ * s'accordent pas sur l'orientation de la paire : `findSlugCollisions` trie
+ * ses groupes, donc émet des paires avec les chemins en ordre alphabétique ;
+ * `findVerbatimOverlaps` reflète l'ordre d'entrée des fichiers. Quand la même
+ * paire est trouvée par les deux règles, elles peuvent l'émettre avec `a` et
+ * `b` inversés l'une par rapport à l'autre. La déduplication dans
+ * `findDuplicateCandidates` s'appuie sur ce tri pour les fondre en un seul
+ * candidat. (Que ça marche en production dépend aussi d'un hasard amont :
+ * `loadCorpus` trie déjà le corpus par chemin, ce qui fait souvent coïncider
+ * l'ordre de `findVerbatimOverlaps` — mais cette fonction ne doit pas s'appuyer
+ * là-dessus, c'est elle qui porte la garantie.)
+ */
+function pairKey(candidate) {
+    return [candidate.a, candidate.b].sort().join(" ");
+}
+/**
+ * Point d'entrée pour les deux rapports de détection de doublons — applique
+ * les deux règles déterministes (collision de slug, recouvrement verbatim)
+ * et écarte les paires inéligibles en amont de toute comparaison, jamais en
+ * filtrant le résultat après coup, pour que l'exclusion soit inconditionnelle.
+ *
+ * Remplace la comparaison O(n²) par embeddings de l'ancien `MergeCandidate`,
+ * qui mesurait le registre d'écriture (les fiches feedback partagent un bloc
+ * frontmatter et une convention rédactionnelle, pas un sujet) plutôt que la
+ * vraie duplication.
+ *
+ * Trois exclusions, appliquées avant toute comparaison :
+ * (1) `isIndexFile` : un index (MEMORY.md et sous-index) est une table des
+ * matières qui liste toutes les fiches — il ressemble donc un peu à chacune
+ * d'elles et ne peut jamais être fusionné utilement.
+ * (2) `isProtected` : une fiche `metadata.protected: true` (garde-fou,
+ * mémoire délibérément singulière) ne doit jamais être proposée en fusion,
+ * quelle que soit la ressemblance de son contenu.
+ * (3) `supersessionTarget` : une paire déjà liée par `metadata.superseded_by`
+ * a sa relation déjà nommée et résolue — la signaler à nouveau est du bruit.
+ */
+export function findDuplicateCandidates(files) {
+    const eligible = files.filter((f) => !isIndexFile(f.path) && !isProtected(f.content));
+    const supersessionTargetByPath = new Map(eligible.map((f) => [f.path, supersessionTarget(f.content)]));
+    const alreadyLinked = (candidate) => supersessionTargetByPath.get(candidate.a) === candidate.b ||
+        supersessionTargetByPath.get(candidate.b) === candidate.a;
+    const seen = new Set();
+    const candidates = [];
+    // La collision de slug d'abord : c'est la règle la plus sûre, donc c'est son
+    // explication qu'on garde si les deux règles trouvent la même paire.
+    for (const candidate of [...findSlugCollisions(eligible.map((f) => f.path)), ...findVerbatimOverlaps(eligible)]) {
+        if (alreadyLinked(candidate))
+            continue;
+        const key = pairKey(candidate);
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        candidates.push(candidate);
+    }
+    return candidates;
+}
+/**
+ * Une fiche marquée `metadata.protected: true` (backlog 16/08, étude de
+ * marché Synapse — « Von Restorff », mnemoverse) ne doit jamais devenir un
+ * candidat doublon, quelle que soit la ressemblance de son contenu avec un
+ * autre fichier. Utilisé par `findDuplicateCandidates` pour écarter ces
+ * fiches en amont de toute comparaison (voir sa documentation pour le
+ * raisonnement complet). Historiquement, c'était déjà l'exclusion appliquée
+ * par l'ancien détecteur par similarité avant son appel au modèle.
  */
 function isProtected(content) {
     const fm = extractFrontmatter(content);
@@ -286,122 +482,28 @@ function supersessionTarget(content) {
     return extractFrontmatter(content)?.fields["metadata.superseded_by"];
 }
 /**
- * Backlog item 39 (13/10/2026, measured 15/10): the frontmatter is stripped
- * before a file is compared to another, because it is the single biggest
- * source of false positives. On the real 222-fiche hub, 59 pairs came back
- * at 0.85 and 47 of them were feedback<->feedback: those fiches share a
+ * Backlog item 39 (13/10/2026): the frontmatter is stripped before a file is
+ * compared to another, because it was the single biggest source of false
+ * positives for the detector that used to live here. On the real 222-fiche
+ * hub, the deleted cosine-similarity detector returned 59 pairs at its 0.85
+ * threshold, and 47 of them were feedback<->feedback: those fiches share a
  * frontmatter block (name / description / metadata.type / created / expires)
- * and a writing template, and the frontmatter dominates the first chunk of
- * every one of them. The similarity was measuring the register, not the
- * subject. Dropping it takes those 47 to 0.
+ * and a writing template, and the frontmatter dominated the first chunk of
+ * every one of them — the similarity was measuring the register, not the
+ * subject. That measurement no longer applies as-is (the detector and its
+ * threshold are both gone), but the principle it proved still holds and is
+ * still exercised today: `findVerbatimOverlaps` compares bodies via this
+ * function, and its own tests ("ne compare jamais le frontmatter...") pin
+ * that two fiches sharing nothing but an identical frontmatter block never
+ * pair.
  *
  * Only this check strips it. The RAG index keeps embedding whole files on
  * purpose — searching for "the fiche about X" legitimately matches on the
  * description — and the two must never share a transformed embedding space
  * (same reasoning as the chunker note above).
  */
-export function bodyWithoutFrontmatter(content) {
+function bodyWithoutFrontmatter(content) {
     const withoutBom = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
     return withoutBom.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "");
-}
-export async function findMergeCandidates(files, embed, chunkFn = chunkFile, threshold = 0.85) {
-    // NB: this function has no size guard of its own — O(n²) pairwise chunk
-    // comparison, measured 16/08 at 117s for 2000 files (scripts/scale-
-    // test.mjs). Real callers (runBrainLint.ts, synapseDoctor.ts) go through
-    // findMergeCandidatesGuarded() below instead, which skips the comparison
-    // above SharedConfig.mergeCandidatesMaxFiles. This function stays a pure
-    // algorithm — the size policy belongs at the application layer, same
-    // reasoning as checkWipLimit being a separate concern from lintFile.
-    // A fiche reduced to its frontmatter has an empty comparison body, and two
-    // empty bodies embed identically — it would pair with every other stub.
-    // Nothing to compare means no pairing, so it is dropped before embedding
-    // (which also spares the embed call).
-    // The index is excluded for the same reason it is excluded from the lint
-    // (item 37): it is a table of contents, not a memory. Found on the real hub
-    // once the frontmatter stopped dominating the scores — it listed every
-    // fiche, so it resembled all of them a little, and "merge MEMORY.md into
-    // feedback_garde_fous.md" is not an action that exists.
-    const eligibleFiles = files
-        .filter((f) => !isIndexFile(f.path))
-        .map((f) => ({ path: f.path, content: f.content, body: bodyWithoutFrontmatter(f.content) }))
-        .filter((f) => !isProtected(f.content) && f.body.trim() !== "");
-    // metadata.superseded_by (found redundant 16/08 by manual testing on a
-    // disposable hub, not by guessing): a pair already linked that way has
-    // its relationship already named and resolved — suggesting a merge on
-    // top of that is noise, not a second opinion.
-    const supersessionTargetByPath = new Map(eligibleFiles.map((f) => [f.path, supersessionTarget(f.content)]));
-    const fileEmbeddings = await Promise.all(eligibleFiles.map(async (f) => {
-        const chunks = await chunkFn(f.path, f.body);
-        return { path: f.path, embeddings: await Promise.all(chunks.map((c) => embed(c.text))) };
-    }));
-    const candidates = [];
-    for (let i = 0; i < fileEmbeddings.length; i++) {
-        for (let j = i + 1; j < fileEmbeddings.length; j++) {
-            const pathA = fileEmbeddings[i].path;
-            const pathB = fileEmbeddings[j].path;
-            if (supersessionTargetByPath.get(pathA) === pathB || supersessionTargetByPath.get(pathB) === pathA)
-                continue;
-            let best = 0;
-            for (const eA of fileEmbeddings[i].embeddings) {
-                for (const eB of fileEmbeddings[j].embeddings) {
-                    const score = cosineSimilarity(eA, eB);
-                    if (score > best)
-                        best = score;
-                }
-            }
-            if (best >= threshold) {
-                candidates.push({ a: pathA, b: pathB, score: best });
-            }
-        }
-    }
-    return candidates.sort((a, b) => b.score - a.score);
-}
-const DEFAULT_MAX_SUGGESTIONS = 10;
-/**
- * The size-guarded entrypoint real callers use instead of findMergeCandidates
- * directly. Above maxFiles, skips the O(n²) comparison entirely and reports
- * why via a corpus-wide finding — never silently returns an empty list that
- * would read as "no duplicates found" when the real answer is "not checked".
- *
- * Backlog item 39, second half: the ranked cap lives here, not in
- * findMergeCandidates, for the same reason the size guard does. The pure
- * algorithm must never silently drop a result it found; the application layer
- * decides how many suggestions a human can actually act on, and says out loud
- * how many it held back. 59 suggestions is not a list anyone reads, so the
- * cap is what keeps the report readable as the corpus grows, rather than
- * leaving it readable by luck.
- */
-export async function findMergeCandidatesGuarded(files, embed, chunkFn, maxFiles, maxSuggestions = DEFAULT_MAX_SUGGESTIONS) {
-    if (files.length > maxFiles) {
-        return {
-            mergeCandidates: [],
-            findings: [
-                {
-                    path: "(corpus)",
-                    severity: "warning",
-                    message: `détection de fusion sautée : ${files.length} fichiers dépasse le seuil configuré ` +
-                        `(${maxFiles}) — comparaison par paire en O(n²), mesurée à plusieurs minutes au-delà de ` +
-                        `quelques milliers de fichiers, risquerait de dépasser le budget du hook. Ajuster ` +
-                        `mergeCandidatesMaxFiles via /synapse-config si le temps d'attente est acceptable.`,
-                },
-            ],
-        };
-    }
-    const ranked = await findMergeCandidates(files, embed, chunkFn);
-    if (ranked.length <= maxSuggestions)
-        return { mergeCandidates: ranked, findings: [] };
-    return {
-        mergeCandidates: ranked.slice(0, maxSuggestions),
-        findings: [
-            {
-                path: "(corpus)",
-                severity: "warning",
-                message: `${ranked.length} paires candidates au-dessus du seuil : seules les ${maxSuggestions} mieux ` +
-                    `classées sont listées, ${ranked.length - maxSuggestions} masquées pour garder le rapport ` +
-                    `lisible. Un nombre aussi élevé veut généralement dire que le seuil ne discrimine plus sur ` +
-                    `ce corpus, pas qu'il y a autant de doublons.`,
-            },
-        ],
-    };
 }
 //# sourceMappingURL=brainLint.js.map

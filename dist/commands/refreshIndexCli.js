@@ -39,7 +39,7 @@ async function main() {
         const result = await runRefreshIndex(pluginDataDir, projectDir);
         if (result.auditTriggered && result.auditReport) {
             const r = result.auditReport;
-            console.log(`synapse: audit périodique déclenché (cadence dépassée) — ${r.fileCount} fichiers, ${r.findings.length} signalement(s), ${r.mergeCandidates.length} candidat(s) fusion.`);
+            console.log(`synapse: audit périodique déclenché (cadence dépassée) — ${r.fileCount} fichiers, ${r.findings.length} signalement(s), ${r.duplicateCandidates.length} doublon(s) probable(s).`);
         }
     }
     catch (err) {

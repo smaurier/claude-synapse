@@ -30,17 +30,6 @@ export interface SharedConfig {
      *  Shared (not per-machine local config) so every machine's watch stays
      *  in sync, same reasoning as refreshProjectsExclusions. */
     marketWatchExtraSources: string[];
-    /** findMergeCandidates() is O(n²) pairwise chunk comparison — measured
-     *  16/08 (scripts/scale-test.mjs, fast synthetic embed to isolate
-     *  algorithmic cost from model latency): 255ms at 100 files, 7s at 500,
-     *  27s at 1000, 117s at 2000 — quadratic, and 117s alone already exceeds
-     *  most of the 120s SessionStart hook budget /synapse-doctor runs inside
-     *  when the periodic audit is overdue. Above this many files, callers
-     *  skip the comparison and report why instead of risking a hook timeout.
-     *  Never validated against a real corpus this large — the default is a
-     *  deliberately conservative margin below where the synthetic timing
-     *  starts eating the hook budget, not a hard technical ceiling. */
-    mergeCandidatesMaxFiles: number;
     /** machineId -> ISO timestamp of its last SessionStart on this hub. A
      *  device registry (found 16/08 competitive review: two higher-starred
      *  comparable projects have one, Synapse didn't) — "which machines are
