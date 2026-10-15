@@ -153,3 +153,31 @@ son frontmatter ne forme aucune paire.
 Invariants : `protected` exclut, `superseded_by` écarte, l'index est écarté.
 
 Rapport : l'absence de doublon produit une ligne explicite.
+
+## Correction après relecture de branche : une phrase fausse, une décision non enregistrée
+
+La section « Ce qui est retiré » ci-dessus affirme que l'appel au modèle d'embedding, dans
+`runSynapseDoctor` comme dans `runBrainLint`, « ne servait qu'à cette détection ». C'est faux pour
+`runSynapseDoctor` : la première instruction de cette fonction était
+`ensurePinnedEmbeddingModel(local.hubClonePath)`, un health-check de configuration (il pince
+`ragEmbeddingModelVersion` au premier usage et lève une exception en cas de désaccord entre
+machines) qui ne servait en rien à la détection de doublons. La suppression de cet appel n'a
+jamais été décidée explicitement ni enregistrée — elle découlait d'une prémisse fausse, répétée
+sans être vérifiée.
+
+Ce qui reste vrai malgré la prémisse fausse : la suppression est néanmoins défendable. Un rapport
+qui ne fait que lire et afficher ne devrait pas pouvoir lever une exception sur un désaccord de
+configuration — ce n'était de toute façon pas le bon endroit pour ce garde-fou. Et le check
+survit ailleurs : `searchHub` et `refreshHubIndex` (le chemin `SessionStart`) appellent tous les
+deux `ensurePinnedEmbeddingModel`, donc un désaccord de version continue de surfacer à l'usage
+normal du hub.
+
+Conséquence ouverte, assumée plutôt que corrigée dans cette branche : `/synapse-doctor` ne
+surface plus un pin de modèle divergent, alors que diagnostiquer le hub est exactement son rôle.
+Une régression possible de ce retrait serait de ne se révéler qu'au prochain appel de recherche,
+pas au prochain audit périodique. Pas traité ici — à reconsidérer si ça se manifeste en pratique.
+
+Autre trou assumé, pas corrigé : la ligne de rapport « aucun doublon détecté » (CLI, cas vide)
+n'a aucun test. `runBrainLintCli.ts` et `synapseDoctorCli.ts` appellent `void main()` au
+chargement du module, donc aucun test ne peut les importer sans l'exécuter — restructurer les
+points d'entrée pour les rendre testables est hors périmètre de l'item 44.

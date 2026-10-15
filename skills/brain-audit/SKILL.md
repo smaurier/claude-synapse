@@ -6,8 +6,9 @@ allowed-tools: [Read, Grep, Glob, Bash]
 # /brain-audit
 
 Complément de `/brain-lint`, pas un remplaçant. `/brain-lint` est déterministe (frontmatter,
-péremption, similarité RAG) — sciemment limité à ça, parce qu'un vrai jugement sémantique ne
-peut pas être fait honnêtement par du pattern-matching (voir `docs/DESIGN.md`). `/brain-audit`
+péremption, doublons probables par collision de slug et recouvrement verbatim — aucune
+similarité RAG) — sciemment limité à ça, parce qu'un vrai jugement sémantique ne peut pas être
+fait honnêtement par du pattern-matching (voir `docs/DESIGN.md`). `/brain-audit`
 assume l'inverse : c'est **Claude qui juge**, pas un algorithme qui prétend le faire. D'où deux
 règles non négociables :
 

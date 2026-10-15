@@ -21,14 +21,12 @@
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, recordMachineSeen, DEFAULT_SHARED_CONFIG } from "../config/config.js";
 import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadHubCorpus } from "../rag/corpus.js";
-import { embedLocal, chunkFileForEmbedding, ensurePinnedEmbeddingModel } from "../rag/embeddingProvider.js";
 import { inspectLink, createLink, removeLink } from "../jonction/jonction.js";
-import { lintCorpus, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences } from "./brainLint.js";
+import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences } from "./brainLint.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 import { refreshProjects } from "./refreshProjects.js";
 export async function runSynapseDoctor(pluginDataDir, linkPath) {
     const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
-    ensurePinnedEmbeddingModel(local.hubClonePath);
     recordMachineSeen(local.hubClonePath, local.machineId);
     // Problème 1 health-check: a broken link is the one case safe to
     // auto-fix (per design) — wrong-target is left alone, that's a human
@@ -49,16 +47,14 @@ export async function runSynapseDoctor(pluginDataDir, linkPath) {
     // lastAuditAt write.
     const corpus = loadHubCorpus(local.hubClonePath);
     const sharedForRead = readSharedConfig(local.hubClonePath);
-    const merge = await findMergeCandidatesGuarded(corpus, embedLocal, chunkFileForEmbedding, sharedForRead.mergeCandidatesMaxFiles);
+    const duplicateCandidates = findDuplicateCandidates(corpus);
     const citedCodeDriftFindings = await checkCitedCodeDrift(corpus, createGitLastCommitDateResolver(local.knownProjectRoots ?? {}));
     const findings = [
         ...lintCorpus(corpus),
         ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit),
         ...checkSupersessionReferences(corpus),
         ...citedCodeDriftFindings,
-        ...merge.findings,
     ];
-    const mergeCandidates = merge.mergeCandidates;
     // Problème 6 follow-up: re-scan every root /synapse-refresh-projects has
     // ever been given, so a project discovered manually once stays covered
     // by every later periodic audit without the root being retyped.
@@ -84,7 +80,7 @@ export async function runSynapseDoctor(pluginDataDir, linkPath) {
         linkAutoFixed,
         fileCount: corpus.length,
         findings,
-        mergeCandidates,
+        duplicateCandidates,
         projectsRelinked,
         knownMachines: sharedForRead.knownMachines,
     };

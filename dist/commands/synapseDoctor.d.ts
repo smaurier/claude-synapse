@@ -19,7 +19,7 @@
  * the timestamp itself would get updated.
  */
 import { type LinkState } from "../jonction/jonction.js";
-import { type LintFinding, type MergeCandidate } from "./brainLint.js";
+import { type LintFinding, type DuplicateCandidate } from "./brainLint.js";
 import { type RefreshProjectsResult } from "./refreshProjects.js";
 export interface SynapseDoctorReport {
     hubClonePath: string;
@@ -27,7 +27,7 @@ export interface SynapseDoctorReport {
     linkAutoFixed: boolean;
     fileCount: number;
     findings: LintFinding[];
-    mergeCandidates: MergeCandidate[];
+    duplicateCandidates: DuplicateCandidate[];
     projectsRelinked: RefreshProjectsResult[];
     /** machineId -> ISO last-seen timestamp (SharedConfig.knownMachines,
      *  16/08) — the device registry, updated on every SessionStart. */

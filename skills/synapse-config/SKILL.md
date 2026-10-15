@@ -18,8 +18,8 @@ suggéré le changement.
 Sans argument après `/synapse-config`, faire `show`. Avec `<clé> <valeur>`, faire `set`. Avec
 `forget-machine <idPoste>`, retirer un poste du registre.
 
-**Clés modifiables par `set`** : `lockTimeoutMinutes`, `auditCadenceDays`, `wipLimit`,
-`mergeCandidatesMaxFiles` (nombres positifs) ; `refreshProjectsExclusions`,
+**Clés modifiables par `set`** : `lockTimeoutMinutes`, `auditCadenceDays`, `wipLimit`
+(nombres positifs) ; `refreshProjectsExclusions`,
 `marketWatchExtraSources`, `refreshProjectsRoots` (listes séparées par des virgules). Les autres
 champs sont gérés par le code lui-même (version du modèle d'embedding, date du dernier audit,
 registre des postes) ou sont un marqueur de schéma (`version`). Si l'utilisateur demande une clé

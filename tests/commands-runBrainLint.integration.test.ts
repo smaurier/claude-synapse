@@ -1,14 +1,19 @@
-import { it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBrainLint } from "../src/commands/runBrainLint.js";
-import { writeLocalConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
+import { comparableWords, shingles, containment } from "../src/commands/brainLint.js";
+import { writeLocalConfig } from "../src/config/config.js";
 import { rmTree } from "./helpers/fsTemp.js";
-import { describeWithModel } from "./helpers/model.js";
 
-// Real model — slow, own file, same rationale as the other
-// *.integration.test.ts files.
+// Was gated behind describeWithModel (real embedding model, own file, slow)
+// until item 44 (15/10/2026) replaced the RAG-similarity merge-candidate
+// check with findDuplicateCandidates — two deterministic rules, zero model
+// calls. runBrainLint no longer touches embedLocal/chunkFileForEmbedding/
+// ensurePinnedEmbeddingModel at all, so this file no longer needs the model
+// gate and runs in milliseconds instead of the minutes a real embedding call
+// used to cost.
 
 let root: string;
 let pluginDataDir: string;
@@ -31,16 +36,18 @@ afterEach(() => {
   rmTree(root);
 });
 
-describeWithModel("runBrainLint", () => {
-  it("reports frontmatter findings and near-duplicate files as merge candidates", async () => {
+describe("runBrainLint", () => {
+  it("reports frontmatter findings and slug-collision duplicates", async () => {
+    // Same radical ("sujet") under two different type prefixes — the slug
+    // rule (findSlugCollisions) is the one meant to catch this.
     writeFileSync(
-      join(hubDir, "a.md"),
-      "---\nname: a\ndescription: le chat dort sur le canapé\nmetadata:\n  type: reference\n---\nLe chat dort sur le canapé toute la journée.",
+      join(hubDir, "project_sujet.md"),
+      "---\nname: a\ndescription: un sujet du point de vue projet\nmetadata:\n  type: project\n  created: 2026-08-01\n  expires: ongoing\n---\n\nContenu projet.",
       "utf8",
     );
     writeFileSync(
-      join(hubDir, "b.md"),
-      "---\nname: b\ndescription: le chat dort sur le canapé aussi\nmetadata:\n  type: reference\n---\nLe chat dort sur le canapé toute la journée.",
+      join(hubDir, "reference_sujet.md"),
+      "---\nname: b\ndescription: le même sujet du point de vue référence\nmetadata:\n  type: reference\n---\n\nContenu référence.",
       "utf8",
     );
     writeFileSync(join(hubDir, "cassé.md"), "pas de frontmatter du tout", "utf8");
@@ -48,15 +55,53 @@ describeWithModel("runBrainLint", () => {
     const report = await runBrainLint(pluginDataDir);
 
     expect(report.findings.some((f) => f.path === "cassé.md")).toBe(true);
-    expect(report.mergeCandidates.some((c) => [c.a, c.b].includes("a.md") && [c.a, c.b].includes("b.md"))).toBe(true);
-  }, 120_000);
+    expect(report.duplicateCandidates).toHaveLength(1);
+    expect(report.duplicateCandidates[0]).toMatchObject({ rule: "slug", stem: "sujet" });
+    expect([report.duplicateCandidates[0]!.a, report.duplicateCandidates[0]!.b].sort()).toEqual([
+      "project_sujet.md",
+      "reference_sujet.md",
+    ]);
+  });
 
-  // Regression (14/08, found on the real 121-file hub): findMergeCandidates
-  // used to embed each file's full raw content directly, triggering
-  // embedLocal's own "shouldn't happen" truncation warning for every file
-  // over ~128 tokens. Proves the real pipeline (not just the fake-embed
-  // unit test) chunks first — the warning must never fire here.
-  it("never triggers the model's truncation warning — proves real chunking, not raw full-file embedding", async () => {
+  // Same fixture shape as the unit-level "rend un candidat `rule: verbatim`"
+  // test in commands-brainLint.test.ts — reused here so the verbatim path is
+  // also proven through the real entry point (readLocalConfig, loadHubCorpus,
+  // checkCitedCodeDrift and all), not just the pure function in isolation.
+  // Filenames carry no recognised slug prefix, so the slug rule cannot fire
+  // regardless of content — only the verbatim rule is in play.
+  it("reports a verbatim-only duplicate end to end, with no slug collision possible", async () => {
+    const bodyA =
+      "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
+    const bodyB = "one two three four five six seven eight nine ten eleven twelve extra extra different stuff here";
+    writeFileSync(
+      join(hubDir, "doc-un.md"),
+      `---\nname: a\ndescription: x\nmetadata:\n  type: reference\n---\n\n${bodyA}`,
+      "utf8",
+    );
+    writeFileSync(
+      join(hubDir, "doc-deux.md"),
+      `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${bodyB}`,
+      "utf8",
+    );
+
+    const expectedContainment = containment(shingles(comparableWords(bodyA), 8), shingles(comparableWords(bodyB), 8));
+
+    const report = await runBrainLint(pluginDataDir);
+
+    expect(report.duplicateCandidates).toHaveLength(1);
+    expect(report.duplicateCandidates[0]).toMatchObject({ rule: "verbatim", shingleSize: 8 });
+    expect(report.duplicateCandidates[0]?.containment).toBeCloseTo(expectedContainment, 10);
+  });
+
+  // The load-bearing proof that runBrainLint never touches the embedding
+  // model is static, not this assertion: no import of embedLocal,
+  // chunkFileForEmbedding, or ensurePinnedEmbeddingModel survives anywhere
+  // in runBrainLint.ts's import graph (see the file-by-file change in item
+  // 44). This test is a narrower, symptom-level guard on top of that — if
+  // something regressed and started routing through the model again on long
+  // content, the model's own truncation warning would fire here. Also no
+  // longer needs the long timeout this file carried under the model gate.
+  it("never touches the embedding model — no truncation warning, no model call", async () => {
     const longContent = "Décision du 22/07/2026 sur le projet Synapse et son architecture. ".repeat(30);
     writeFileSync(
       join(hubDir, "long.md"),
@@ -66,29 +111,7 @@ describeWithModel("runBrainLint", () => {
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     await runBrainLint(pluginDataDir);
-    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("dépasse la limite"));
+    expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
-  }, 120_000);
-
-  // Ajouté 16/08 (scripts/scale-test.mjs) : findMergeCandidates est O(n²),
-  // mesuré 117s a 2000 fichiers synthétiques — au-dela du seuil configuré,
-  // le sauter et le signaler plutot que de risquer un hang/timeout de hook.
-  it("skips merge-candidate detection above the configured file-count threshold, with a warning", async () => {
-    writeFileSync(
-      join(hubDir, "a.md"),
-      "---\nname: a\ndescription: le chat dort sur le canapé\nmetadata:\n  type: reference\n---\nLe chat dort sur le canapé toute la journée.",
-      "utf8",
-    );
-    writeFileSync(
-      join(hubDir, "b.md"),
-      "---\nname: b\ndescription: le chat dort sur le canapé aussi\nmetadata:\n  type: reference\n---\nLe chat dort sur le canapé toute la journée.",
-      "utf8",
-    );
-    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, mergeCandidatesMaxFiles: 1 });
-
-    const report = await runBrainLint(pluginDataDir);
-
-    expect(report.mergeCandidates).toEqual([]);
-    expect(report.findings.some((f) => f.path === "(corpus)" && /fusion/.test(f.message))).toBe(true);
-  }, 120_000);
+  });
 });

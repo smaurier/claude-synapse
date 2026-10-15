@@ -3,14 +3,16 @@
 // comment) — flagged 14/08 as never actually validated beyond a few hundred
 // files, and published without being tested. Measures real code (dist/),
 // not a reimplementation. Uses a fast synthetic embed (deterministic,
-// hash-based) on purpose: isolates the ALGORITHMIC scaling of search and
-// merge-candidate detection from real-model embedding latency, which is a
-// separate, already-accepted cost unrelated to this specific question.
+// hash-based) on purpose for the index/search measurement: isolates the
+// ALGORITHMIC scaling of search from real-model embedding latency, which is
+// a separate, already-accepted cost unrelated to this specific question.
+// findDuplicateCandidates (item 44) makes no model call at all — it is
+// measured on the same synthetic corpus, synchronously, no embed involved.
 //
 // Usage: node scripts/scale-test.mjs
 import { VectorStore } from "../dist/rag/store.js";
 import { chunkFile } from "../dist/rag/chunk.js";
-import { findMergeCandidates } from "../dist/commands/brainLint.js";
+import { findDuplicateCandidates } from "../dist/commands/brainLint.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +29,16 @@ function fakeEmbed(text) {
   return v.map((x) => x / norm);
 }
 
+// ⚠️ À LIRE AVANT D'INTERPRÉTER LA COLONNE findDuplicateCandidates.
+// Ce corpus synthétique est bâti sur une même phrase répétée, donc toutes les
+// fiches partagent des passages mot pour mot : la règle verbatim sort 100 %
+// des paires, soit exactement C(n,2) candidats (4950 à n=100, 7 998 000 à
+// n=4000). C'est le point faible documenté de `findVerbatimOverlaps` (des
+// shingles dédupliqués sur une phrase répétée), reproduit ici involontairement.
+// Conséquence : le temps mesuré est un PIRE CAS dominé par l'allocation de
+// millions d'objets candidats, pas un coût représentatif. Sur le hub réel de
+// 225 fiches la même fonction rend 1 paire en 726 ms. Ne pas lire cette
+// colonne comme un taux de faux positifs, ni comme le coût attendu.
 function syntheticCorpus(n) {
   const files = [];
   for (let i = 0; i < n; i++) {
@@ -58,10 +70,10 @@ async function measure(n) {
     const searchMs = performance.now() - t1;
 
     const t2 = performance.now();
-    const candidates = await findMergeCandidates(corpus, fakeEmbed, chunkFile);
-    const mergeMs = performance.now() - t2;
+    const candidates = findDuplicateCandidates(corpus);
+    const duplicatesMs = performance.now() - t2;
 
-    console.log(`n=${n}\tindex=${indexMs.toFixed(0)}ms\tsearch=${searchMs.toFixed(1)}ms\tfindMergeCandidates=${mergeMs.toFixed(0)}ms (${candidates.length} candidats)`);
+    console.log(`n=${n}\tindex=${indexMs.toFixed(0)}ms\tsearch=${searchMs.toFixed(1)}ms\tfindDuplicateCandidates=${duplicatesMs.toFixed(0)}ms (${candidates.length} candidats)`);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });

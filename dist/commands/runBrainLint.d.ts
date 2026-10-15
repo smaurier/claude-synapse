@@ -1,13 +1,12 @@
 /**
  * The CLI-facing entrypoint for /brain-lint — resolves LocalConfig,
- * loads the real corpus, runs the fast checks (lintCorpus) and the
- * RAG-backed merge-candidate check (findMergeCandidates, wired to the
- * real embedLocal — same model as production.ts, same reasoning against
- * ever mixing embedding spaces).
+ * loads the real corpus, and runs the fast checks (lintCorpus) plus the
+ * deterministic duplicate-candidate detection (findDuplicateCandidates) —
+ * two rules (slug collision, verbatim n-gram overlap), no model call.
  */
-import { type LintFinding, type MergeCandidate } from "./brainLint.js";
+import { type LintFinding, type DuplicateCandidate } from "./brainLint.js";
 export interface BrainLintReport {
     findings: LintFinding[];
-    mergeCandidates: MergeCandidate[];
+    duplicateCandidates: DuplicateCandidate[];
 }
 export declare function runBrainLint(pluginDataDir: string): Promise<BrainLintReport>;

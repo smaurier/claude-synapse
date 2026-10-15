@@ -2,6 +2,7 @@
  * node "${CLAUDE_PLUGIN_ROOT}/dist/commands/runBrainLintCli.js" "${CLAUDE_PLUGIN_DATA}"
  */
 import { runBrainLint } from "./runBrainLint.js";
+import { formatDuplicateCandidate } from "./brainLint.js";
 async function main() {
     const [pluginDataDir] = process.argv.slice(2);
     if (!pluginDataDir) {
@@ -11,15 +12,15 @@ async function main() {
     }
     try {
         const report = await runBrainLint(pluginDataDir);
-        if (report.findings.length === 0 && report.mergeCandidates.length === 0) {
-            console.log("synapse: rien à signaler.");
+        if (report.findings.length === 0 && report.duplicateCandidates.length === 0) {
+            console.log("synapse: rien à signaler, aucun doublon détecté.");
             return;
         }
         for (const f of report.findings) {
             console.log(`[${f.severity}] ${f.path} — ${f.message}`);
         }
-        for (const c of report.mergeCandidates) {
-            console.log(`[fusion possible] ${c.a} <-> ${c.b} (similarité ${c.score.toFixed(3)})`);
+        for (const c of report.duplicateCandidates) {
+            console.log(formatDuplicateCandidate(c));
         }
     }
     catch (err) {

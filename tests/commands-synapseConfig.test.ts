@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { showSynapseConfig, setSynapseConfig, forgetMachine } from "../src/commands/synapseConfig.js";
+import { showSynapseConfig, setSynapseConfig, forgetMachine, NUMERIC_EDITABLE_KEYS } from "../src/commands/synapseConfig.js";
 import { writeLocalConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
@@ -30,6 +30,17 @@ afterEach(() => {
 describe("showSynapseConfig", () => {
   it("returns defaults for a hub with no config written yet", async () => {
     expect(await showSynapseConfig(pluginDataDir)).toEqual(DEFAULT_SHARED_CONFIG);
+  });
+});
+
+// Item 44 (15/10/2026) : la détection de fusion par similarité cosinus
+// (et son seuil de taille configurable) a été retirée au profit de deux
+// règles déterministes sans modèle, qui n'ont pas besoin d'un garde-fou de
+// taille — voir findDuplicateCandidates dans brainLint.ts. La clé associée
+// n'a donc plus lieu d'être modifiable.
+describe("NUMERIC_EDITABLE_KEYS", () => {
+  it("ne contient plus mergeCandidatesMaxFiles (détection par règles, sans modèle, sans garde-fou de taille)", () => {
+    expect(NUMERIC_EDITABLE_KEYS).not.toContain("mergeCandidatesMaxFiles");
   });
 });
 

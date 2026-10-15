@@ -14,9 +14,9 @@
  * correct thing, matching this codebase's bias (loadCorpus does the same
  * for the hub itself) — unmeasured against very large real transcripts, a
  * assumption to revisit if it's ever felt as slow in practice, the same
- * way findMergeCandidates's O(n²) cost was only bounded after it was
- * actually measured (16/08, scripts/scale-test.mjs), not guessed at ahead
- * of time.
+ * way the corpus's own O(n²) duplicate-detection cost was only addressed
+ * after it was actually measured (16/08, scripts/scale-test.mjs), not
+ * guessed at ahead of time.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";

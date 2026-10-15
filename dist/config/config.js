@@ -23,7 +23,6 @@ export const DEFAULT_SHARED_CONFIG = {
     lastAuditAt: null,
     wipLimit: 5,
     marketWatchExtraSources: [],
-    mergeCandidatesMaxFiles: 500,
     knownMachines: {},
     refreshProjectsRoots: [],
     corpusRoot: ".",

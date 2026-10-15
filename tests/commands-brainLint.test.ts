@@ -1,6 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences } from "../src/commands/brainLint.js";
-import { chunkFile } from "../src/rag/chunk.js";
+import { describe, it, expect } from "vitest";
+import { extractFrontmatter, lintFile, lintCorpus, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, containment, findDuplicateCandidates, formatDuplicateCandidate, VALID_TYPES } from "../src/commands/brainLint.js";
 
 const VALID_REFERENCE = `---
 name: exemple
@@ -61,6 +60,49 @@ describe("extractFrontmatter", () => {
     const fm = extractFrontmatter(withBom);
     expect(fm?.fields.name).toBe("exemple-projet");
     expect(fm?.fields["metadata.type"]).toBe("project");
+  });
+});
+
+describe("slugStem", () => {
+  it("retire le préfixe de type et les séparateurs", () => {
+    expect(slugStem("project_un_sujet.md")).toBe("unsujet");
+    expect(slugStem("reference_un_sujet.md")).toBe("unsujet");
+  });
+
+  it("traite `-` et `_` comme équivalents, dans le préfixe comme dans le radical", () => {
+    expect(slugStem("project-une-chose.md")).toBe("unechose");
+    expect(slugStem("project_une_chose.md")).toBe("unechose");
+  });
+
+  it("ignore un chemin de sous-dossier", () => {
+    expect(slugStem("archive/project_un_sujet.md")).toBe("unsujet");
+  });
+
+  it("rend null pour une fiche sans préfixe de type reconnu", () => {
+    expect(slugStem("sans-prefixe-de-type.md")).toBeNull();
+    expect(slugStem("MEMORY.md")).toBeNull();
+  });
+
+  it("accepte les préfixes indépendamment de la casse du nom de fichier", () => {
+    expect(slugStem("Project_Un_Sujet.md")).toBe("unsujet");
+  });
+
+  it("rend null pour un radical vide", () => {
+    expect(slugStem("project_.md")).toBeNull();
+  });
+
+  it("détecte le préfixe user", () => {
+    expect(slugStem("user_mon_profil.md")).toBe("monprofil");
+  });
+
+  it("reconnaît un préfixe pour chacun des VALID_TYPES — les deux listes ne doivent jamais diverger", () => {
+    // Garde-fou de régression (item 44, point 7) : SLUG_TYPE_PREFIXES dérive
+    // de VALID_TYPES dans brainLint.ts ; ce test échoue si quelqu'un les
+    // sépare à nouveau sans mettre à jour les deux, ou ajoute un cinquième
+    // type sans que la règle de collision de slug le reconnaisse.
+    for (const type of VALID_TYPES) {
+      expect(slugStem(`${type}_sujet.md`)).toBe("sujet");
+    }
   });
 });
 
@@ -236,285 +278,34 @@ describe("checkSupersessionReferences", () => {
   });
 });
 
-describe("findMergeCandidates", () => {
-  // One-hot-by-hash fake: identical content -> identical vector (similarity
-  // 1), different content -> near-orthogonal (similarity ~0). Deliberately
-  // more discriminating than a small char-bucket histogram (e.g. 3 buckets
-  // of char codes mod 3) — tried that first, but two unrelated French
-  // sentences still landed above 0.9 cosine similarity purely from sharing
-  // a similar character distribution, not from being "the same idea". This
-  // test cares about the pairing/threshold/sorting logic, not embedding
-  // quality — a clean identical-vs-orthogonal fake isolates that.
-  function fakeEmbed(text: string): number[] {
-    const dims = 26;
-    const vec = new Array(dims).fill(0);
-    let hash = 0;
-    for (const ch of text) hash = (hash * 31 + ch.charCodeAt(0)) % dims;
-    vec[hash] = 1;
-    return vec;
-  }
-
-  it("flags near-identical files above the threshold", async () => {
-    const files = [
-      { path: "a.md", content: "contenu presque identique" },
-      { path: "b.md", content: "contenu presque identique" },
-      { path: "c.md", content: "tout autre chose entièrement différent" },
-    ];
-
-    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({ a: "a.md", b: "b.md" });
-  });
-
-  it("returns nothing below the threshold", async () => {
-    const files = [
-      { path: "a.md", content: "aaa" },
-      { path: "b.md", content: "zzz" },
-    ];
-    expect(await findMergeCandidates(files, fakeEmbed, undefined, 0.99)).toEqual([]);
-  });
-
-  // Backlog item 39 (13/10): on a real 222-fiche hub, 59 pairs came back at
-  // 0.85 and 47 of them were feedback<->feedback, because those fiches share
-  // a frontmatter block and a writing template. The similarity was measuring
-  // the register, not the subject. Measured 15/10: dropping the frontmatter
-  // from the compared text takes those 47 to 0.
-  it("compares bodies, so identical bodies pair despite different frontmatter", async () => {
-    const files = [
-      { path: "a.md", content: "---\nname: a\ndescription: la fiche a\nmetadata:\n  type: feedback\n---\n\nle même corps exactement" },
-      { path: "b.md", content: "---\nname: b\ndescription: tout autre chose\nmetadata:\n  type: project\n  created: 2026-01-01\n---\n\nle même corps exactement" },
-    ];
-
-    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({ a: "a.md", b: "b.md" });
-  });
-
-  // Consequence of comparing bodies: a fiche reduced to its frontmatter now
-  // has an empty body, and two empty bodies are identical. Such a fiche has
-  // nothing to compare, so it must never pair rather than pair with every
-  // other stub.
-  it("never pairs fiches that are nothing but frontmatter", async () => {
-    const files = [
-      { path: "stub-a.md", content: "---\nname: a\ndescription: la fiche a\nmetadata:\n  type: reference\n---\n" },
-      { path: "stub-b.md", content: "---\nname: b\ndescription: la fiche b\nmetadata:\n  type: project\n---\n" },
-    ];
-
-    expect(await findMergeCandidates(files, fakeEmbed, undefined, 0.5)).toEqual([]);
-  });
-
-  // Found on the real hub 15/10, after the two fixes above: the report
-  // offered "MEMORY.md <-> feedback_garde_fous.md" at 0.867. Item 37 had
-  // excluded the index from the lint, not from the duplicate detection. The
-  // index is a table of contents listing every fiche, so it resembles all of
-  // them a little and can never be merged into one of them.
-  it("never offers the index as a merge candidate", async () => {
-    const files = [
-      { path: "MEMORY.md", content: "# Memory Index\n\nexactement le même contenu" },
-      { path: "feedback_x.md", content: "---\nname: x\ndescription: x\nmetadata:\n  type: feedback\n---\n\nexactement le même contenu" },
-    ];
-
-    expect(await findMergeCandidates(files, fakeEmbed, undefined, 0.5)).toEqual([]);
-  });
-
-  it("sorts candidates by descending score", async () => {
-    const files = [
-      { path: "a.md", content: "aaa" },
-      { path: "b.md", content: "aab" },
-      { path: "c.md", content: "aaa" },
-    ];
-    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0);
-    expect(candidates[0]!.score).toBeGreaterThanOrEqual(candidates.at(-1)!.score);
-  });
-
-  // Backlog 16/08 (étude de marché Synapse, idée "Von Restorff" / mnemoverse):
-  // a memory deliberately marked `protected: true` in frontmatter must never
-  // become a merge candidate, even if its content is near-identical to
-  // another file — the whole point is to shield a singular memory (a
-  // garde-fou, say) from being silently folded into something else.
-  const FRONTMATTER_BASE = "---\nname: x\ndescription: x\nmetadata:\n  type: reference";
-  const FRONTMATTER_PROTECTED = `${FRONTMATTER_BASE}\n  protected: true\n---\n\ncontenu presque identique`;
-  const FRONTMATTER_ORDINARY = `${FRONTMATTER_BASE}\n---\n\ncontenu presque identique`;
-
-  it("excludes a file marked protected: true from merge-candidate pairing, even if near-identical", async () => {
-    // Same frontmatter/body as the "ordinary" fixture below, save for the
-    // `protected: true` line — isolates the exclusion itself rather than
-    // the fake hash's sensitivity to unrelated text differences (name,
-    // path...). Without that care this test can read green for the wrong
-    // reason: not-yet-implemented exclusion logic masked by frontmatter
-    // text alone already pushing the fake embeddings apart.
-    const files = [
-      { path: "a.md", content: FRONTMATTER_PROTECTED },
-      { path: "b.md", content: FRONTMATTER_ORDINARY },
-    ];
-
-    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
-
-    expect(candidates).toEqual([]);
-  });
-
-  it("never calls embed() on a protected file's content (excluded before pairing, not just filtered from results)", async () => {
-    // The outcome-level test above could pass by coincidence: two files
-    // whose content differs by only the `protected: true` line will
-    // already hash to different buckets under the fake embedder, similarity
-    // low, no candidate — even with zero exclusion logic implemented. This
-    // test is immune to that: it asserts the protected file's text never
-    // reaches embed() at all, which can only be true once the exclusion is
-    // real.
-    const embed = vi.fn(fakeEmbed);
-    const files = [
-      { path: "a.md", content: FRONTMATTER_PROTECTED },
-      { path: "b.md", content: FRONTMATTER_ORDINARY },
-    ];
-
-    await findMergeCandidates(files, embed, undefined, 0.99);
-
-    const embeddedTexts = embed.mock.calls.map(([text]) => text as string);
-    expect(embeddedTexts.some((t) => t.includes("protected: true"))).toBe(false);
-  });
-
-  it("still pairs two ordinary near-identical files when neither is protected (regression guard)", async () => {
-    const files = [
-      { path: "a.md", content: FRONTMATTER_ORDINARY },
-      { path: "b.md", content: FRONTMATTER_ORDINARY },
-    ];
-
-    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
-
-    expect(candidates).toHaveLength(1);
-  });
-
-  // Found 16/08 by manual testing on a disposable hub (not by guessing): a
-  // pair already linked via superseded_by still showed up as "fusion
-  // possible" — redundant, the relationship between the two is already
-  // named and resolved, suggesting a merge on top of that is noise.
-  //
-  // Deliberately uses a constant embed (every file maps to the same
-  // vector, guaranteeing similarity 1.0 for ANY pair) rather than
-  // fakeEmbed — isolates the exclusion logic itself from whether two
-  // pieces of test content happen to hash into the same bucket, the exact
-  // trap that produced a false-green earlier this session.
-  it("does not suggest merging a pair already linked via superseded_by — that relationship is already resolved, not a duplicate to fuse", async () => {
-    const alwaysSameEmbed = (): number[] => [1, 0, 0];
-    const files = [
-      {
-        path: "old.md",
-        content: "---\nname: old\ndescription: x\nmetadata:\n  type: reference\n  superseded_by: new.md\n---\n\nx",
-      },
-      { path: "new.md", content: "---\nname: new\ndescription: x\nmetadata:\n  type: reference\n---\n\ny" },
-      { path: "other.md", content: "---\nname: other\ndescription: x\nmetadata:\n  type: reference\n---\n\nz" },
-    ];
-
-    const candidates = await findMergeCandidates(files, alwaysSameEmbed, undefined, 0.99);
-
-    // old<->new excluded (superseded link already resolves that relationship);
-    // every other pair still flagged (positive control — proves this isn't
-    // just suppressing all pairing).
-    expect(candidates.map((c) => [c.a, c.b].sort())).toEqual(
-      expect.arrayContaining([
-        ["new.md", "other.md"],
-        ["old.md", "other.md"],
-      ]),
-    );
-    expect(candidates.some((c) => [c.a, c.b].sort().join() === ["new.md", "old.md"].sort().join())).toBe(false);
-  });
-
-  // Regression: the first version called embed(f.content) directly on the
-  // full raw file, bypassing chunking entirely — silently truncated by the
-  // real model past its token window, one embed() call per file no matter
-  // how long. Found 14/08 on the real 121-file hub via the model's own
-  // "shouldn't happen" truncation warning firing for every file.
-  it("chunks long files before embedding, rather than embedding the full raw content in one call", async () => {
-    const embed = vi.fn(fakeEmbed);
-    const longContent = "a".repeat(1000); // over chunk.ts's 500-char default
-    const files = [{ path: "long.md", content: longContent }];
-
-    await findMergeCandidates(files, embed, undefined, 0.99);
-
-    expect(embed.mock.calls.length).toBeGreaterThan(1); // multiple chunks, not one call with the whole file
-    for (const [text] of embed.mock.calls) {
-      expect((text as string).length).toBeLessThan(longContent.length);
-    }
-  });
-});
-
-// Ajouté 16/08 (scripts/scale-test.mjs) : O(n²) mesuré a 117s pour 2000
-// fichiers synthétiques — au-dela du seuil configuré, skip + avertissement
-// plutot qu'un calcul potentiellement de plusieurs minutes.
-describe("findMergeCandidatesGuarded", () => {
-  function fakeEmbed(text: string): number[] {
-    const dims = 26;
-    const vec = new Array(dims).fill(0);
-    let hash = 0;
-    for (const ch of text) hash = (hash * 31 + ch.charCodeAt(0)) % dims;
-    vec[hash] = 1;
-    return vec;
-  }
-
-  it("runs the real comparison when the corpus is at or under the threshold", async () => {
-    const files = [
-      { path: "a.md", content: "contenu presque identique" },
-      { path: "b.md", content: "contenu presque identique" },
-    ];
-
-    const result = await findMergeCandidatesGuarded(files, fakeEmbed, chunkFile, 2);
-
-    expect(result.findings).toEqual([]);
-    expect(result.mergeCandidates).toHaveLength(1);
-  });
-
-  // Backlog item 39, second half: 59 suggestions is not a list anyone reads.
-  // The cap is the structural guarantee that the report stays readable even
-  // if the corpus grows, and it is applied here rather than inside
-  // findMergeCandidates for the same reason the size guard is: the pure
-  // algorithm must not silently drop results, the application layer decides
-  // how many a human can act on and says so.
-  describe("plafond de suggestions", () => {
-    function identicalFiles(count: number): { path: string; content: string }[] {
-      return Array.from({ length: count }, (_, i) => ({ path: `f${i}.md`, content: "exactement le même contenu" }));
-    }
-
-    it("caps the suggestions and says how many it held back", async () => {
-      const result = await findMergeCandidatesGuarded(identicalFiles(6), fakeEmbed, chunkFile, 100, 10);
-
-      expect(result.mergeCandidates).toHaveLength(10);
-      expect(result.findings).toHaveLength(1);
-      expect(result.findings[0]?.message).toContain("15");
-      expect(result.findings[0]?.message).toContain("10");
-    });
-
-    it("keeps the highest-ranked suggestions, in order", async () => {
-      const files = identicalFiles(6);
-      const all = await findMergeCandidates(files, fakeEmbed, chunkFile);
-
-      const result = await findMergeCandidatesGuarded(files, fakeEmbed, chunkFile, 100, 10);
-
-      expect(result.mergeCandidates).toEqual(all.slice(0, 10));
-    });
-
-    it("says nothing when the suggestions already fit under the cap", async () => {
-      const result = await findMergeCandidatesGuarded(identicalFiles(2), fakeEmbed, chunkFile, 100, 10);
-
-      expect(result.mergeCandidates).toHaveLength(1);
-      expect(result.findings).toEqual([]);
-    });
-  });
-
-  it("skips the comparison and reports why when the corpus exceeds the threshold", async () => {
-    const files = [
-      { path: "a.md", content: "contenu presque identique" },
-      { path: "b.md", content: "contenu presque identique" },
-      { path: "c.md", content: "un troisieme fichier" },
-    ];
-
-    const result = await findMergeCandidatesGuarded(files, fakeEmbed, chunkFile, 2);
-
-    expect(result.mergeCandidates).toEqual([]);
-    expect(result.findings).toEqual([
-      expect.objectContaining({ path: "(corpus)", severity: "warning" }),
+describe("findSlugCollisions", () => {
+  it("apparie deux fiches de types différents au même radical", () => {
+    const pairs = findSlugCollisions(["project_un_sujet.md", "reference_un_sujet.md"]);
+    expect(pairs).toEqual([
+      { a: "project_un_sujet.md", b: "reference_un_sujet.md", rule: "slug", stem: "unsujet" },
     ]);
+  });
+
+  it("apparie deux fiches du même type dont seuls les séparateurs diffèrent", () => {
+    const pairs = findSlugCollisions(["project-une-chose.md", "project_une_chose.md"]);
+    expect(pairs).toHaveLength(1);
+  });
+
+  it("n'apparie pas deux radicaux différents", () => {
+    expect(findSlugCollisions(["project_a.md", "reference_b.md"])).toEqual([]);
+  });
+
+  it("ignore les fiches sans préfixe de type", () => {
+    expect(findSlugCollisions(["sans-prefixe.md", "autre_fichier.md"])).toEqual([]);
+  });
+
+  it("rend toutes les paires d'un groupe de trois", () => {
+    const pairs = findSlugCollisions(["project_x.md", "reference_x.md", "feedback_x.md"]);
+    expect(pairs).toHaveLength(3);
+  });
+
+  it("n'apparie pas un fichier avec lui-même en cas de doublure dans l'entrée", () => {
+    expect(findSlugCollisions(["project_x.md", "project_x.md"])).toEqual([]);
   });
 });
 
@@ -611,5 +402,244 @@ describe("checkWipLimit", () => {
       content: "---\nname: x\ndescription: x\nmetadata:\n  type: reference\n---\n",
     }));
     expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+  });
+});
+
+describe("comparableWords", () => {
+  it("normalise la casse, les accents et la ponctuation", () => {
+    expect(comparableWords("Été, déjà : **gras** !")).toEqual(["ete", "deja", "gras"]);
+  });
+
+  it("retire le code inline, qui n'est pas de la prose", () => {
+    expect(comparableWords("avant `const x = 1` apres")).toEqual(["avant", "apres"]);
+  });
+});
+
+describe("shingles", () => {
+  it("honore le paramètre size et n'utilise jamais une valeur par défaut implicite", () => {
+    const words = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    const size6 = shingles(words, 6);
+    const size8 = shingles(words, 8);
+    expect(size6.size).toBe(5); // 10 - 6 + 1
+    expect(size8.size).toBe(3); // 10 - 8 + 1
+    expect(size6.size).not.toBe(size8.size);
+  });
+});
+
+describe("findVerbatimOverlaps", () => {
+  const LONG = "ceci est une phrase assez longue pour produire plusieurs empreintes de huit mots consecutifs sans se repeter du tout";
+
+  it("apparie deux corps partageant un long passage mot pour mot", () => {
+    const files = [
+      { path: "a.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${LONG}` },
+      { path: "b.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${LONG}` },
+    ];
+    const pairs = findVerbatimOverlaps(files);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ a: "a.md", b: "b.md", rule: "verbatim", shingleSize: 8 });
+  });
+
+  it("n'apparie pas deux corps au vocabulaire proche mais sans passage commun", () => {
+    const files = [
+      { path: "a.md", content: "le chat dort sur le tapis rouge du salon pendant que la pluie tombe" },
+      { path: "b.md", content: "un tapis rouge attend dans le salon et la pluie continue de tomber ce soir" },
+    ];
+    expect(findVerbatimOverlaps(files)).toEqual([]);
+  });
+
+  it("ne compare jamais le frontmatter, identique d'une fiche à l'autre", () => {
+    const sameFrontmatter = "---\nname: n\ndescription: une description strictement identique sur les deux fiches ici\nmetadata:\n  type: feedback\n  created: 2026-01-01\n  expires: ongoing\n---\n\n";
+    const files = [
+      { path: "a.md", content: `${sameFrontmatter}corps completement different du second avec ses propres mots a lui` },
+      { path: "b.md", content: `${sameFrontmatter}rien a voir ici, autre sujet, autres termes, aucune phrase partagee` },
+    ];
+    expect(findVerbatimOverlaps(files)).toEqual([]);
+  });
+
+  it("n'apparie pas une fiche réduite à son frontmatter", () => {
+    const files = [
+      { path: "a.md", content: "---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n" },
+      { path: "b.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: project\n---\n" },
+    ];
+    expect(findVerbatimOverlaps(files)).toEqual([]);
+  });
+
+  it("encadre le seuil par le haut : partage 5 shingles sur 9 = 0.556, détecte", () => {
+    // Body A: 16 words → 9 shingles (16 - 8 + 1)
+    const bodyA =
+      "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
+    // Body B: 17 words → 10 shingles, 5 shingles initiaux partagés avec A
+    // "one two ... twelve extra extra different stuff here" → seulement les 5 premiers huit-grammes matchent
+    const bodyB = "one two three four five six seven eight nine ten eleven twelve extra extra different stuff here";
+
+    const files = [
+      { path: "a.md", content: `---\nname: a\nmetadata:\n  type: feedback\n---\n\n${bodyA}` },
+      { path: "b.md", content: `---\nname: b\nmetadata:\n  type: feedback\n---\n\n${bodyB}` },
+    ];
+
+    const pairs = findVerbatimOverlaps(files);
+    expect(pairs).toHaveLength(1);
+    // 5 shared shingles / 9 total in min(sets) = 5/9 ≈ 0.556
+    expect(pairs[0]?.containment).toBeCloseTo(5 / 9, 3);
+    expect(pairs[0]?.containment).toBeGreaterThan(0.3);
+  });
+
+  it("encadre le seuil par le bas : partage 1 shingle sur 9 = 0.111, ne détecte pas", () => {
+    // Body A: 16 words → 9 shingles
+    const bodyA =
+      "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
+    // Body B: 16 words → 9 shingles, seulement le premier huit-gramme matche
+    const bodyB = "one two three four five six seven eight completely different text here now extra words more";
+
+    const files = [
+      { path: "a.md", content: `---\nname: a\nmetadata:\n  type: feedback\n---\n\n${bodyA}` },
+      { path: "b.md", content: `---\nname: b\nmetadata:\n  type: feedback\n---\n\n${bodyB}` },
+    ];
+
+    const pairs = findVerbatimOverlaps(files);
+    expect(pairs).toHaveLength(0); // 1/9 ≈ 0.111 < 0.3, no match
+  });
+});
+
+describe("findDuplicateCandidates", () => {
+  const PROTECTED = "---\nname: g\ndescription: x\nmetadata:\n  type: feedback\n  protected: true\n---\n\ncorps";
+
+  it("réunit les deux règles", () => {
+    const files = [
+      { path: "project_x.md", content: "---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\ncorps a" },
+      { path: "reference_x.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\ncorps b" },
+    ];
+    const pairs = findDuplicateCandidates(files);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]?.rule).toBe("slug");
+  });
+
+  it("n'appaire jamais une fiche `protected`", () => {
+    const files = [
+      { path: "project_x.md", content: PROTECTED },
+      { path: "reference_x.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\ncorps" },
+    ];
+    expect(findDuplicateCandidates(files)).toEqual([]);
+  });
+
+  it("écarte une paire déjà liée par superseded_by", () => {
+    const files = [
+      { path: "project_x.md", content: "---\nname: a\ndescription: x\nmetadata:\n  type: project\n  superseded_by: reference_x.md\n---\n\ncorps" },
+      { path: "reference_x.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\ncorps" },
+    ];
+    expect(findDuplicateCandidates(files)).toEqual([]);
+  });
+
+  it("écarte l'index et les sous-index", () => {
+    // The index resembles everything it lists. On the real hub, MEMORY.md was
+    // proposed for merge with an ordinary fiche at 0.867 similarity via the
+    // verbatim rule (8-word shingles, containment 1.0 if they share a body).
+    // This fixture gives both the index and two ordinary fiches the exact same
+    // long body, so they WOULD pair via verbatim overlaps if the index were
+    // not filtered upfront.
+    const shared = "ceci est une longue phrase avec beaucoup de mots pour fabriquer des shingles de huit mots sans probleme du tout";
+    const files = [
+      { path: "MEMORY.md", content: shared },
+      { path: "MEMORY-dormant.md", content: shared },
+      { path: "project_x.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${shared}` },
+      { path: "project_y.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: project\n---\n\n${shared}` },
+    ];
+    // With the guard: only the two ordinary fiches can pair (the index and
+    // sub-index are filtered). So we get one pair: project_x <-> project_y.
+    const pairs = findDuplicateCandidates(files);
+    expect(pairs).toHaveLength(1);
+    expect([pairs[0]?.a, pairs[0]?.b].sort()).toEqual(["project_x.md", "project_y.md"]);
+  });
+
+  it("ne rend jamais deux fois la même paire quand les deux règles la trouvent", () => {
+    const shared = "ceci est une phrase assez longue pour produire plusieurs empreintes de huit mots consecutifs sans se repeter";
+    const files = [
+      { path: "project_x.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${shared}` },
+      { path: "reference_x.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${shared}` },
+    ];
+    expect(findDuplicateCandidates(files)).toHaveLength(1);
+  });
+
+  it("déduplication fonctionne même quand les deux règles émettent la paire en ordres différents (avec ordre d'entrée inversé)", () => {
+    // findSlugCollisions trie ses groupes, mais findVerbatimOverlaps émet les
+    // paires en ordre d'entrée. Quand la même paire est trouvée par les deux
+    // règles ET que l'ordre d'entrée est inversé (les fichiers arrivent dans
+    // l'ordre inverse de leur sort alphabétique), les deux règles émettent la
+    // paire avec a et b inversés l'une par rapport à l'autre. Le seul rempart
+    // est le `.sort()` dans pairKey. Sans lui, on rendrait la même paire deux fois.
+    const shared = "ceci est une phrase assez longue pour produire plusieurs empreintes de huit mots consecutifs sans se repeter";
+    const files = [
+      // Ordre d'entrée inversé : reference_x avant project_x
+      { path: "reference_x.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${shared}` },
+      { path: "project_x.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${shared}` },
+    ];
+    const pairs = findDuplicateCandidates(files);
+    expect(pairs).toHaveLength(1);
+    expect([pairs[0]?.a, pairs[0]?.b].sort()).toEqual(["project_x.md", "reference_x.md"]);
+  });
+
+  it("écarte une paire superseded_by même quand le pointeur sort alphabétiquement APRÈS sa cible", () => {
+    // L'ordre dans lequel une paire arrive (qui est a, qui est b) dépend de
+    // l'ordre d'entrée des fichiers, pas de qui supersede qui. Le test précédent
+    // (écarte une paire déjà liée) couvre le cas où le pointeur sort avant sa cible.
+    // Celui-ci couvre l'inverse. alreadyLinked doit vérifier les DEUX directions :
+    // get(a) === b ET get(b) === a.
+    const files = [
+      { path: "project_x.md", content: "---\nname: new\ndescription: y\nmetadata:\n  type: project\n---\n\ncorps" },
+      { path: "user_x.md", content: "---\nname: old\ndescription: x\nmetadata:\n  type: user\n  superseded_by: project_x.md\n---\n\ncorps" },
+    ];
+    // project_x.md sorts avant user_x.md (p < u), donc la paire arrivera avec
+    // a=project_x.md, b=user_x.md. Pour que alreadyLinked le détecte, il faut
+    // la deuxième clause : supersessionTargetByPath.get(b) === a.
+    expect(findDuplicateCandidates(files)).toEqual([]);
+  });
+
+  // Jusqu'ici, chaque test de ce describe utilise des chemins qui collisionnent
+  // par radical, donc la règle slug fire toujours et masque la question : la
+  // fonction composée rend-elle vraiment un `rule: "verbatim"` seule, sans
+  // aucune collision de radical en jeu ? "doc-un.md"/"doc-deux.md" ne portent
+  // aucun des préfixes de SLUG_TYPE_PREFIXES, donc slugStem rend null pour les
+  // deux : la règle slug ne peut matériellement pas fire ici, par construction
+  // du nom de fichier, pas par coïncidence de contenu.
+  it("rend un candidat `rule: verbatim` quand seul le recouvrement de passage déclenche, sans collision de radical possible", () => {
+    // Mêmes corps que le test d'encadrement par le haut de findVerbatimOverlaps
+    // (5 shingles partagés sur 9 dans le plus petit ensemble).
+    const bodyA =
+      "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
+    const bodyB = "one two three four five six seven eight nine ten eleven twelve extra extra different stuff here";
+
+    const files = [
+      { path: "doc-un.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: reference\n---\n\n${bodyA}` },
+      { path: "doc-deux.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${bodyB}` },
+    ];
+
+    // Containment calculé via les primitives de la librairie elle-même,
+    // jamais deviné — même exigence que les tests d'encadrement de seuil de
+    // findVerbatimOverlaps.
+    const expectedContainment = containment(shingles(comparableWords(bodyA), 8), shingles(comparableWords(bodyB), 8));
+
+    const pairs = findDuplicateCandidates(files);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]?.rule).toBe("verbatim");
+    expect(pairs[0]).toMatchObject({ rule: "verbatim", shingleSize: 8 });
+    expect(pairs[0]?.containment).toBeCloseTo(expectedContainment, 10);
+    expect(expectedContainment).toBeGreaterThan(0.3); // sinon le test ne prouverait rien
+  });
+});
+
+describe("formatDuplicateCandidate", () => {
+  it("nomme le radical sur la branche slug", () => {
+    const line = formatDuplicateCandidate({ a: "project_x.md", b: "reference_x.md", rule: "slug", stem: "x" });
+    expect(line).toBe("[doublon probable] project_x.md <-> reference_x.md (même radical `x`)");
+  });
+
+  it("rend le containment en pourcentage arrondi avec la taille de shingle, sur la branche verbatim", () => {
+    const line = formatDuplicateCandidate({ a: "a.md", b: "b.md", rule: "verbatim", containment: 0.556, shingleSize: 8 });
+    expect(line).toBe("[doublon probable] a.md <-> b.md (56 % des suites de 8 mots de la plus courte se retrouvent dans l'autre)");
+  });
+
+  it("arrondit le containment plutôt que de le tronquer (0.555 -> 56 %, pas 55 %)", () => {
+    const line = formatDuplicateCandidate({ a: "a.md", b: "b.md", rule: "verbatim", containment: 0.555, shingleSize: 8 });
+    expect(line).toContain("56 %");
   });
 });
