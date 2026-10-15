@@ -96,12 +96,18 @@ isolate algorithmic cost from real-model latency):
 | 2,000 | 37.6s | 207ms | 117.2s |
 
 Search itself holds up fine — the linear scan stays well under a second even at thousands of
-files, so the original assumption is correct for that piece. Merge-candidate detection is a
-different story: it's a genuine O(n²) pairwise chunk comparison, and at 2,000 files alone it
-already consumes most of the 120-second budget the automatic periodic audit runs inside. Fixed
-the same day, not just documented: above a configurable file-count threshold
-(`SharedConfig.mergeCandidatesMaxFiles`, default 500), the comparison is skipped entirely and
-the report says why, rather than risking a hook timeout.
+files, so the original assumption is correct for that piece. Merge-candidate detection, at the
+time, was the different story in this table: a genuine O(n²) pairwise chunk comparison against
+embeddings, and at 2,000 files alone it already consumed most of the 120-second budget the
+automatic periodic audit runs inside.
+
+Item 44 (15/10/2026) removed that detector rather than keep tuning its threshold: cosine
+similarity could not separate real duplicates from unrelated fiches (see item 39's measurements),
+so no amount of size-guarding fixed a check that wasn't measuring the right thing. It is replaced
+by `findDuplicateCandidates` in `brainLint.ts` — two deterministic rules, a slug-stem collision and
+a verbatim n-gram overlap, both O(n²) over cheap in-memory set operations rather than a per-file
+model call, so no file-count guard is needed. Full rationale and the real-hub measurements behind
+the two thresholds: `docs/superpowers/specs/2026-10-15-detection-doublons-design.md`.
 
 ## Device registry (16/08)
 

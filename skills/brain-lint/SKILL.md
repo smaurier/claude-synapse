@@ -15,9 +15,10 @@ attendre sa confirmation. Un mauvais merge peut fondre deux faits distincts en s
 risqué qu'un lien qui traîne.
 
 Les candidats "division" et "journal narratif" sont des heuristiques (longueur/structure), pas
-des certitudes — les présenter comme des pistes à vérifier, pas des verdicts. Le premier appel
-peut prendre du temps (chargement du modèle d'embedding pour les candidats fusion).
+des certitudes — les présenter comme des pistes à vérifier, pas des verdicts.
 
-Au-delà de `mergeCandidatesMaxFiles` (défaut 500, éditable via `/synapse-config`), la détection
-de fusion est sautée avec un avertissement plutôt que lancée — comparaison par paire en O(n²),
-mesurée à plusieurs minutes au-delà de quelques milliers de fichiers.
+Les doublons probables viennent de deux règles déterministes, sans appel modèle : une collision
+de radical (deux fiches au même nom sous des préfixes de type différents, ex. `project_x.md` et
+`reference_x.md`) et un recouvrement verbatim (deux fiches partageant un passage d'au moins huit
+mots consécutifs — signe d'un copier-coller). Le rapport est déterministe d'un bout à l'autre et
+ne fait aucun appel au modèle d'embedding.

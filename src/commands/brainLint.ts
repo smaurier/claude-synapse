@@ -8,9 +8,6 @@
  * enough to hand-parse without pulling in a dependency (léger bias).
  */
 
-import { cosineSimilarity } from "../rag/store.js";
-import { chunkFile, type Chunk } from "../rag/chunk.js";
-
 export interface Frontmatter {
   fields: Record<string, string>;
 }
@@ -393,11 +390,11 @@ export function containment(a: Set<string>, b: Set<string>): number {
  * répétition plutôt que par passage partagé, mais c'est jamais observé et un
  * humain lit la suggestion de toute façon.
  *
- * Pas de garde-fou de taille, contrairement à findMergeCandidatesGuarded :
+ * Pas de garde-fou de taille, contrairement à l'ancien `findMergeCandidatesGuarded` :
  * aucun appel modèle, aucune I/O, juste opérations en-mémoire sur des sets
  * (O(n²) de comparaisons brutes, ~24000 sur 222 fiches, catégoriquement bon
- * marché). findMergeCandidatesGuarded est cher parce qu'il appelle embed()
- * par chunk pour tous les fichiers (en Promise.all), puis O(n²) de
+ * marché). `findMergeCandidatesGuarded` était cher parce qu'il appelait embed()
+ * par chunk pour tous les fichiers (en Promise.all), puis faisait O(n²) de
  * comparaisons cosineSimilarity sur les vecteurs déjà calculés ; ici on paie
  * zéro appel modèle par itération.
  */
@@ -489,46 +486,14 @@ export function findDuplicateCandidates(files: { path: string; content: string }
   return candidates;
 }
 
-export interface MergeCandidate {
-  a: string;
-  b: string;
-  score: number;
-}
-
 /**
- * Merge candidates via RAG similarity — the one check that needs a real
- * embedding model, kept separate from lintFile/lintCorpus so those stay
- * fast and model-free. embed is injected (same pattern as production.ts)
- * so this stays testable with a fake; the real wiring uses embedLocal.
- * Suggestions only, as designed — this never merges anything itself.
- *
- * Chunked before embedding — found 14/08 on the real 121-file hub: the
- * first version embedded each file's FULL raw content directly, silently
- * truncated by the model past its token window (embedLocal's own defensive
- * warning fired for every file over the limit — "shouldn't happen if the
- * text comes from chunkFileForEmbedding()", and it was happening, because
- * this function never called it). That meant merge candidates were
- * computed from only the first ~128 tokens of each file, not its real
- * content — a likely contributor to an implausibly large false-positive
- * count (3001 pairs at ≥0.85 on that corpus, including clearly unrelated
- * files). chunkFn defaults to the character heuristic (fast, no model) for
- * unit tests, matching production.ts's split; the real wiring uses
- * chunkFileForEmbedding — same token-exact chunker as everything else,
- * never a second, weaker chunking path.
- *
- * Two files are scored by the MAX similarity across any pair of their
- * chunks — "these files overlap somewhere," not "their first chunks
- * happen to be similar."
- *
- * `metadata.protected: true` (backlog 16/08, étude de marché Synapse —
- * "Von Restorff" protection, mnemoverse) excludes a file from pairing
- * entirely, before any embedding call: a deliberately singular memory
- * (a garde-fou, say) must never become a merge candidate, no matter how
- * similar its content looks to another file. Excluded upstream of
- * embedding rather than filtered from the results afterward — cheaper
- * (protected files never pay the embed cost either), and it's the only
- * way to make the guarantee unconditional rather than "unless a future
- * change filters results differently".
+ * Une fiche marquée `metadata.protected: true` (backlog 16/08, étude de
+ * marché Synapse — « Von Restorff », mnemoverse) ne doit jamais devenir un
+ * candidat doublon, quelle que soit la ressemblance de son contenu avec un
+ * autre fichier. Utilisé par `findDuplicateCandidates` pour écarter ces
+ * fiches en amont de toute comparaison (voir sa documentation pour le
+ * raisonnement complet). Historiquement, c'était aussi l'exclusion que
+ * l'ancien `findMergeCandidates` appliquait avant d'appeler le modèle.
  */
 function isProtected(content: string): boolean {
   const fm = extractFrontmatter(content);
@@ -540,14 +505,20 @@ function supersessionTarget(content: string): string | undefined {
 }
 
 /**
- * Backlog item 39 (13/10/2026, measured 15/10): the frontmatter is stripped
- * before a file is compared to another, because it is the single biggest
- * source of false positives. On the real 222-fiche hub, 59 pairs came back
- * at 0.85 and 47 of them were feedback<->feedback: those fiches share a
+ * Backlog item 39 (13/10/2026): the frontmatter is stripped before a file is
+ * compared to another, because it was the single biggest source of false
+ * positives for the detector that used to live here. On the real 222-fiche
+ * hub, the deleted cosine-similarity detector returned 59 pairs at its 0.85
+ * threshold, and 47 of them were feedback<->feedback: those fiches share a
  * frontmatter block (name / description / metadata.type / created / expires)
- * and a writing template, and the frontmatter dominates the first chunk of
- * every one of them. The similarity was measuring the register, not the
- * subject. Dropping it takes those 47 to 0.
+ * and a writing template, and the frontmatter dominated the first chunk of
+ * every one of them — the similarity was measuring the register, not the
+ * subject. That measurement no longer applies as-is (the detector and its
+ * threshold are both gone), but the principle it proved still holds and is
+ * still exercised today: `findVerbatimOverlaps` compares bodies via this
+ * function, and its own tests ("ne compare jamais le frontmatter...") pin
+ * that two fiches sharing nothing but an identical frontmatter block never
+ * pair.
  *
  * Only this check strips it. The RAG index keeps embedding whole files on
  * purpose — searching for "the fiche about X" legitimately matches on the
@@ -557,123 +528,4 @@ function supersessionTarget(content: string): string | undefined {
 export function bodyWithoutFrontmatter(content: string): string {
   const withoutBom = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
   return withoutBom.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "");
-}
-
-export async function findMergeCandidates(
-  files: { path: string; content: string }[],
-  embed: (text: string) => number[] | Promise<number[]>,
-  chunkFn: (path: string, content: string) => Chunk[] | Promise<Chunk[]> = chunkFile,
-  threshold = 0.85,
-): Promise<MergeCandidate[]> {
-  // NB: this function has no size guard of its own — O(n²) pairwise chunk
-  // comparison, measured 16/08 at 117s for 2000 files (scripts/scale-
-  // test.mjs). Real callers (runBrainLint.ts, synapseDoctor.ts) go through
-  // findMergeCandidatesGuarded() below instead, which skips the comparison
-  // above SharedConfig.mergeCandidatesMaxFiles. This function stays a pure
-  // algorithm — the size policy belongs at the application layer, same
-  // reasoning as checkWipLimit being a separate concern from lintFile.
-  // A fiche reduced to its frontmatter has an empty comparison body, and two
-  // empty bodies embed identically — it would pair with every other stub.
-  // Nothing to compare means no pairing, so it is dropped before embedding
-  // (which also spares the embed call).
-  // The index is excluded for the same reason it is excluded from the lint
-  // (item 37): it is a table of contents, not a memory. Found on the real hub
-  // once the frontmatter stopped dominating the scores — it listed every
-  // fiche, so it resembled all of them a little, and "merge MEMORY.md into
-  // feedback_garde_fous.md" is not an action that exists.
-  const eligibleFiles = files
-    .filter((f) => !isIndexFile(f.path))
-    .map((f) => ({ path: f.path, content: f.content, body: bodyWithoutFrontmatter(f.content) }))
-    .filter((f) => !isProtected(f.content) && f.body.trim() !== "");
-  // metadata.superseded_by (found redundant 16/08 by manual testing on a
-  // disposable hub, not by guessing): a pair already linked that way has
-  // its relationship already named and resolved — suggesting a merge on
-  // top of that is noise, not a second opinion.
-  const supersessionTargetByPath = new Map(eligibleFiles.map((f) => [f.path, supersessionTarget(f.content)]));
-  const fileEmbeddings = await Promise.all(
-    eligibleFiles.map(async (f) => {
-      const chunks = await chunkFn(f.path, f.body);
-      return { path: f.path, embeddings: await Promise.all(chunks.map((c) => embed(c.text))) };
-    }),
-  );
-
-  const candidates: MergeCandidate[] = [];
-  for (let i = 0; i < fileEmbeddings.length; i++) {
-    for (let j = i + 1; j < fileEmbeddings.length; j++) {
-      const pathA = fileEmbeddings[i]!.path;
-      const pathB = fileEmbeddings[j]!.path;
-      if (supersessionTargetByPath.get(pathA) === pathB || supersessionTargetByPath.get(pathB) === pathA) continue;
-
-      let best = 0;
-      for (const eA of fileEmbeddings[i]!.embeddings) {
-        for (const eB of fileEmbeddings[j]!.embeddings) {
-          const score = cosineSimilarity(eA, eB);
-          if (score > best) best = score;
-        }
-      }
-      if (best >= threshold) {
-        candidates.push({ a: pathA, b: pathB, score: best });
-      }
-    }
-  }
-
-  return candidates.sort((a, b) => b.score - a.score);
-}
-
-const DEFAULT_MAX_SUGGESTIONS = 10;
-
-/**
- * The size-guarded entrypoint real callers use instead of findMergeCandidates
- * directly. Above maxFiles, skips the O(n²) comparison entirely and reports
- * why via a corpus-wide finding — never silently returns an empty list that
- * would read as "no duplicates found" when the real answer is "not checked".
- *
- * Backlog item 39, second half: the ranked cap lives here, not in
- * findMergeCandidates, for the same reason the size guard does. The pure
- * algorithm must never silently drop a result it found; the application layer
- * decides how many suggestions a human can actually act on, and says out loud
- * how many it held back. 59 suggestions is not a list anyone reads, so the
- * cap is what keeps the report readable as the corpus grows, rather than
- * leaving it readable by luck.
- */
-export async function findMergeCandidatesGuarded(
-  files: { path: string; content: string }[],
-  embed: (text: string) => number[] | Promise<number[]>,
-  chunkFn: (path: string, content: string) => Chunk[] | Promise<Chunk[]>,
-  maxFiles: number,
-  maxSuggestions = DEFAULT_MAX_SUGGESTIONS,
-): Promise<{ mergeCandidates: MergeCandidate[]; findings: LintFinding[] }> {
-  if (files.length > maxFiles) {
-    return {
-      mergeCandidates: [],
-      findings: [
-        {
-          path: "(corpus)",
-          severity: "warning",
-          message:
-            `détection de fusion sautée : ${files.length} fichiers dépasse le seuil configuré ` +
-            `(${maxFiles}) — comparaison par paire en O(n²), mesurée à plusieurs minutes au-delà de ` +
-            `quelques milliers de fichiers, risquerait de dépasser le budget du hook. Ajuster ` +
-            `mergeCandidatesMaxFiles via /synapse-config si le temps d'attente est acceptable.`,
-        },
-      ],
-    };
-  }
-  const ranked = await findMergeCandidates(files, embed, chunkFn);
-  if (ranked.length <= maxSuggestions) return { mergeCandidates: ranked, findings: [] };
-
-  return {
-    mergeCandidates: ranked.slice(0, maxSuggestions),
-    findings: [
-      {
-        path: "(corpus)",
-        severity: "warning",
-        message:
-          `${ranked.length} paires candidates au-dessus du seuil : seules les ${maxSuggestions} mieux ` +
-          `classées sont listées, ${ranked.length - maxSuggestions} masquées pour garder le rapport ` +
-          `lisible. Un nombre aussi élevé veut généralement dire que le seuil ne discrimine plus sur ` +
-          `ce corpus, pas qu'il y a autant de doublons.`,
-      },
-    ],
-  };
 }
