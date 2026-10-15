@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions } from "../src/commands/brainLint.js";
 import { chunkFile } from "../src/rag/chunk.js";
 
 const VALID_REFERENCE = `---
@@ -548,6 +548,41 @@ describe("findMergeCandidatesGuarded", () => {
     expect(result.findings).toEqual([
       expect.objectContaining({ path: "(corpus)", severity: "warning" }),
     ]);
+  });
+});
+
+describe("findSlugCollisions", () => {
+  it("apparie deux fiches de types différents au même radical", () => {
+    const pairs = findSlugCollisions(["project_un_sujet.md", "reference_un_sujet.md"]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({
+      a: "project_un_sujet.md",
+      b: "reference_un_sujet.md",
+      rule: "slug",
+      stem: "unsujet",
+    });
+  });
+
+  it("apparie deux fiches du même type dont seuls les séparateurs diffèrent", () => {
+    const pairs = findSlugCollisions(["project-une-chose.md", "project_une_chose.md"]);
+    expect(pairs).toHaveLength(1);
+  });
+
+  it("n'apparie pas deux radicaux différents", () => {
+    expect(findSlugCollisions(["project_a.md", "reference_b.md"])).toEqual([]);
+  });
+
+  it("ignore les fiches sans préfixe de type", () => {
+    expect(findSlugCollisions(["sans-prefixe.md", "autre_fichier.md"])).toEqual([]);
+  });
+
+  it("rend toutes les paires d'un groupe de trois", () => {
+    const pairs = findSlugCollisions(["project_x.md", "reference_x.md", "feedback_x.md"]);
+    expect(pairs).toHaveLength(3);
+  });
+
+  it("n'apparie pas un fichier avec lui-même en cas de doublure dans l'entrée", () => {
+    expect(findSlugCollisions(["project_x.md", "project_x.md"])).toEqual([]);
   });
 });
 

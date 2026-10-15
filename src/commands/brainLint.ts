@@ -295,6 +295,47 @@ export function slugStem(path: string): string | null {
   return null;
 }
 
+/**
+ * Une paire de fiches que l'une des deux règles signale comme doublon
+ * probable, avec la preuve qui l'a fait sortir. La preuve est structurée et
+ * non rédigée : c'est le rendu qui compose la phrase, comme le faisait le CLI
+ * avec le score de l'ancien `MergeCandidate`.
+ */
+export type DuplicateCandidate =
+  | { a: string; b: string; rule: "slug"; stem: string }
+  | { a: string; b: string; rule: "verbatim"; containment: number; shingleSize: number };
+
+/**
+ * Règle A de l'item 44 : deux fiches distinctes au même radical traitent le
+ * même sujet sous deux étiquettes. Mesurée sur le hub réel (222 fiches) : 1
+ * paire, qui était le seul vrai doublon identifié à la main, zéro faux
+ * positif. Les chemins sont triés pour que la paire soit stable d'une
+ * exécution à l'autre.
+ */
+export function findSlugCollisions(paths: string[]): DuplicateCandidate[] {
+  const uniquePaths = Array.from(new Set(paths));
+  const byStem = new Map<string, string[]>();
+  for (const path of uniquePaths) {
+    const stem = slugStem(path);
+    if (!stem) continue;
+    const group = byStem.get(stem) ?? [];
+    group.push(path);
+    byStem.set(stem, group);
+  }
+
+  const candidates: DuplicateCandidate[] = [];
+  for (const [stem, group] of byStem) {
+    if (group.length < 2) continue;
+    const sorted = [...group].sort();
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        candidates.push({ a: sorted[i]!, b: sorted[j]!, rule: "slug", stem });
+      }
+    }
+  }
+  return candidates;
+}
+
 export interface MergeCandidate {
   a: string;
   b: string;
