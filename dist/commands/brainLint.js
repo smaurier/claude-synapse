@@ -41,7 +41,13 @@ export function extractFrontmatter(content) {
 /** Les quatre types de la convention mémoire. Seule déclaration : `SLUG_TYPE_PREFIXES`
  *  en dérive plus bas, pour qu'un cinquième type ajouté ici ne laisse pas la
  *  règle de collision de slug aveugle à son existence. */
-export const VALID_TYPES = ["user", "feedback", "project", "reference"];
+/** Gelé : la liste est devenue publique pour que `SLUG_TYPE_PREFIXES` en
+ *  dérive au lieu de la recopier, et une liste publique mutable laisserait
+ *  n'importe quel appelant redéfinir la convention de nommage à l'exécution.
+ *  L'ordre n'est pas porteur aujourd'hui car aucun type n'est préfixe d'un
+ *  autre ; ajouter un type comme `project_archive` rendrait l'ordre
+ *  d'insertion significatif dans `slugStem`. */
+export const VALID_TYPES = Object.freeze(["user", "feedback", "project", "reference"]);
 /** Status alias accepted in place of a date (convention of backlog item 24). */
 const EXPIRES_CLOSED = "closed";
 const DIVISION_LINE_THRESHOLD = 150;
@@ -371,8 +377,11 @@ export function containment(a, b) {
  * fiches distinctes partagent mot pour mot une séquence de ce genre.
  *
  * Mesuré sur le hub réel (222 fiches, 15/10/2026) : le recouvrement maximal
- * observé entre deux fiches quelconques était 0,076 à 8-grammes. Le seuil
- * 0,30 laisse donc un facteur 4 de marge au-dessus du plancher observé.
+ * observé entre deux fiches quelconques était 0,076 à 8-grammes, et aucune
+ * paire ne dépassait 0,10 à 6, 8 ou 12 mots — c'est cette stabilité d'une
+ * taille de n-gramme à l'autre qui justifie le choix de 8, et pas seulement
+ * le chiffre à 8. Le seuil 0,30 laisse un facteur 4 de marge au-dessus du
+ * plancher observé.
  * Cette règle rend zéro paire aujourd'hui, et c'est assumé : elle existe
  * comme garde-fou de régression contre un futur copier-coller, pas comme
  * source de suggestions quotidiennes.
@@ -380,10 +389,13 @@ export function containment(a, b) {
  * Point faible connu : les shingles sont dédupliqués en Set, donc deux
  * fiches dominées par la même courte phrase répétée se réduisent à des
  * ensembles identiques minuscules et marquent 1.0 par répétition plutôt que
- * par passage partagé — ce n'est jamais observé en pratique, et un humain
- * lit la suggestion de toute façon.
+ * par passage partagé. Jamais observé sur un hub réel, mais reproductible à
+ * volonté : `scripts/scale-test.mjs` génère justement des fiches de ce type
+ * et fait donc sortir 100 % des paires. Un humain lit la suggestion, donc le
+ * coût reste faible.
  *
- * Remplace l'ancien détecteur par embeddings (un appel modèle par fiche) :
+ * Remplace l'ancien détecteur par embeddings (un appel modèle par chunk, et
+ * non par fiche — c'est ce dépliage qui coûtait les ~145 s) :
  * ici, aucun appel modèle ni I/O, uniquement des opérations en mémoire sur
  * des sets (O(n²) de comparaisons brutes, ~24 000 sur 222 fiches, bon marché).
  */

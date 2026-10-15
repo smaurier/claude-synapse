@@ -29,6 +29,16 @@ function fakeEmbed(text) {
   return v.map((x) => x / norm);
 }
 
+// ⚠️ À LIRE AVANT D'INTERPRÉTER LA COLONNE findDuplicateCandidates.
+// Ce corpus synthétique est bâti sur une même phrase répétée, donc toutes les
+// fiches partagent des passages mot pour mot : la règle verbatim sort 100 %
+// des paires, soit exactement C(n,2) candidats (4950 à n=100, 7 998 000 à
+// n=4000). C'est le point faible documenté de `findVerbatimOverlaps` (des
+// shingles dédupliqués sur une phrase répétée), reproduit ici involontairement.
+// Conséquence : le temps mesuré est un PIRE CAS dominé par l'allocation de
+// millions d'objets candidats, pas un coût représentatif. Sur le hub réel de
+// 225 fiches la même fonction rend 1 paire en 726 ms. Ne pas lire cette
+// colonne comme un taux de faux positifs, ni comme le coût attendu.
 function syntheticCorpus(n) {
   const files = [];
   for (let i = 0; i < n; i++) {
