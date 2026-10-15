@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles } from "../src/commands/brainLint.js";
 import { chunkFile } from "../src/rag/chunk.js";
 
 const VALID_REFERENCE = `---
@@ -688,6 +688,17 @@ describe("comparableWords", () => {
   });
 });
 
+describe("shingles", () => {
+  it("honore le paramètre size et n'utilise jamais une valeur par défaut implicite", () => {
+    const words = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    const size6 = shingles(words, 6);
+    const size8 = shingles(words, 8);
+    expect(size6.size).toBe(5); // 10 - 6 + 1
+    expect(size8.size).toBe(3); // 10 - 8 + 1
+    expect(size6.size).not.toBe(size8.size);
+  });
+});
+
 describe("findVerbatimOverlaps", () => {
   const LONG = "ceci est une phrase assez longue pour produire plusieurs empreintes de huit mots consecutifs sans se repeter du tout";
 
@@ -724,5 +735,41 @@ describe("findVerbatimOverlaps", () => {
       { path: "b.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: project\n---\n" },
     ];
     expect(findVerbatimOverlaps(files)).toEqual([]);
+  });
+
+  it("encadre le seuil par le haut : partage 5 shingles sur 9 = 0.556, détecte", () => {
+    // Body A: 16 words → 9 shingles (16 - 8 + 1)
+    const bodyA =
+      "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
+    // Body B: 16 words → 9 shingles, 5 shingles initiaux partagés avec A
+    // "one two ... twelve extra extra different stuff here" → seulement les 5 premiers huit-grammes matchent
+    const bodyB = "one two three four five six seven eight nine ten eleven twelve extra extra different stuff here";
+
+    const files = [
+      { path: "a.md", content: `---\nname: a\nmetadata:\n  type: feedback\n---\n\n${bodyA}` },
+      { path: "b.md", content: `---\nname: b\nmetadata:\n  type: feedback\n---\n\n${bodyB}` },
+    ];
+
+    const pairs = findVerbatimOverlaps(files);
+    expect(pairs).toHaveLength(1);
+    // 5 shared shingles / 9 total in min(sets) = 5/9 ≈ 0.556
+    expect(pairs[0]?.containment).toBeCloseTo(5 / 9, 3);
+    expect(pairs[0]?.containment).toBeGreaterThan(0.3);
+  });
+
+  it("encadre le seuil par le bas : partage 1 shingle sur 9 = 0.111, ne détecte pas", () => {
+    // Body A: 16 words → 9 shingles
+    const bodyA =
+      "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
+    // Body B: 16 words → 9 shingles, seulement le premier huit-gramme matche
+    const bodyB = "one two three four five six seven eight completely different text here now extra words more";
+
+    const files = [
+      { path: "a.md", content: `---\nname: a\nmetadata:\n  type: feedback\n---\n\n${bodyA}` },
+      { path: "b.md", content: `---\nname: b\nmetadata:\n  type: feedback\n---\n\n${bodyB}` },
+    ];
+
+    const pairs = findVerbatimOverlaps(files);
+    expect(pairs).toHaveLength(0); // 1/9 ≈ 0.111 < 0.3, no match
   });
 });

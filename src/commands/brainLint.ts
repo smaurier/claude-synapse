@@ -341,9 +341,10 @@ const CONTAINMENT_THRESHOLD = 0.3;
 
 /**
  * Le texte tel qu'on le compare : minuscules, sans accents, sans code inline,
- * sans ponctuation ni marques markdown. L'ordre des opérations compte, le code
- * inline doit partir avant que les backticks ne soient effacés avec le reste de
- * la ponctuation.
+ * sans ponctuation ni marques markdown. L'ordre des opérations compte : le
+ * backtick (U+0060) est classé Unicode diacritic=yes, donc il est supprimé par
+ * le `.replace(/\p{Diacritic}/gu, "")` ; il faut ôter le code inline AVANT le
+ * pass diacritique, sinon les backticks disparaissent sans emporter leur contenu.
  */
 export function comparableWords(body: string): string[] {
   return body
@@ -356,7 +357,7 @@ export function comparableWords(body: string): string[] {
     .filter((word) => word.length > 0);
 }
 
-export function shingles(words: string[], size = SHINGLE_SIZE): Set<string> {
+export function shingles(words: string[], size: number): Set<string> {
   const set = new Set<string>();
   for (let i = 0; i + size <= words.length; i++) set.add(words.slice(i, i + size).join(" "));
   return set;
@@ -386,12 +387,21 @@ export function containment(a: Set<string>, b: Set<string>): number {
  * facteur 4 de marge au-dessus du plancher observé. Cette règle retourne zéro
  * paire aujourd'hui, et c'est intentionnel : elle ne suggère rien, elle garde
  * contre les doublons par copier-coller qui apparaîtraient plus tard. Partager
- * huit mots d'affilée ne survient pas par hasard, ce qui la rend quasi-exempte
- * de faux positifs.
+ * huit mots d'affilée ne survient pas par hasard. Soft spot : les shingles sont
+ * dédupliqués en Set, donc deux fiches dominées par la même courte phrase
+ * répétée collapse à de minuscules sets identiques et marquent 1.0 par
+ * répétition plutôt que par passage partagé, mais c'est jamais observé et un
+ * humain lit la suggestion de toute façon.
+ *
+ * Pas de garde-fou de taille, contrairement à findMergeCandidatesGuarded :
+ * aucun appel modèle, aucune I/O, juste opérations en-mémoire sur des sets
+ * (O(n²) de comparaisons brutes, ~24000 sur 222 fiches, catégoriquement bon
+ * marché). findMergeCandidatesGuarded est cher parce qu'il appelle embed() par
+ * pair de chunks ; ici on paie zéro par itération.
  */
 export function findVerbatimOverlaps(files: { path: string; content: string }[]): DuplicateCandidate[] {
   const prepared = files
-    .map((f) => ({ path: f.path, shingles: shingles(comparableWords(bodyWithoutFrontmatter(f.content))) }))
+    .map((f) => ({ path: f.path, shingles: shingles(comparableWords(bodyWithoutFrontmatter(f.content)), SHINGLE_SIZE) }))
     .filter((f) => f.shingles.size > 0);
 
   const candidates: DuplicateCandidate[] = [];
