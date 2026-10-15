@@ -37,7 +37,7 @@ elsewhere). Nothing to merge, because nothing is ever duplicated in the first pl
    secret scan — nothing with a shape resembling a credential ever gets committed silently.
 
 That's the whole mechanism. Everything else (linting the memory, watching for stale links,
-scanning for merge candidates, tracking the competitive landscape) is built on top of it, never
+flagging probable duplicates, tracking the competitive landscape) is built on top of it, never
 a second source of truth.
 
 ## Why link instead of sync
@@ -59,7 +59,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full reasoning and trade-offs, no
 | `/brain-search` | Hybrid search (semantic + exact match) across the hub. |
 | `/brain-new` | Scaffold a new memory file with the conventional frontmatter. |
 | `/brain-status` | Quick health snapshot for the current project: link state, corpus size, last audit. |
-| `/brain-lint` | Frontmatter validity, expired entries, merge/split candidates — report only. |
+| `/brain-lint` | Frontmatter validity, expired entries, probable duplicates, split candidates — report only. |
 | `/synapse-doctor` | Broader periodic audit (link, index, lint, remembered project roots, device registry) in one report. Auto-fixes only a broken link — never a wrong-target one, that's a human call. |
 | `/synapse-config` | Read or edit the hub's shared config, or forget a retired machine — never by hand-editing a file. |
 | `/synapse-refresh-projects` | Link every Claude Code project found under a given root, in one pass — the root is remembered, so `/synapse-doctor` keeps re-scanning it on its own afterwards. |
@@ -88,12 +88,16 @@ that version on).
 
 ## Status
 
-Core mechanism built and tested: **221 tests**, real-hub validation (not just fixtures) surfaced
+Core mechanism built and tested: **413 tests**, real-hub validation (not just fixtures) surfaced
 and fixed several real bugs along the way — a lexical fallback for bare-acronym search, word-
-boundary matching to avoid false positives, incremental indexing, chunk-aware merge detection.
-Scale-tested too, not just assumed: search stays fast into the thousands of files; the one piece
-that didn't (merge-candidate detection, O(n²)) is guarded against a configurable file-count
-ceiling rather than left to hang. Self-hosted marketplace listing added — see Install above.
+boundary matching to avoid false positives, incremental indexing, and (item 44) two deterministic
+rules for probable duplicates — a slug-stem collision and a verbatim n-gram overlap — replacing a
+cosine-similarity detector that measured over 0.69 on fiches the author considered unrelated and
+could not be fixed by tuning a threshold. Scale-tested too, not just assumed: search stays fast
+into the thousands of files; the old embedding-based duplicate detector was the one piece that
+didn't (O(n²) over a per-file model call), and rather than guard it against a file-count ceiling
+it was replaced outright — both new rules are O(n²) over cheap in-memory set operations, no model
+call and no ceiling needed. Self-hosted marketplace listing added — see Install above.
 `/synapse-init` still configures one project at a time by hand, but a root scanned once via
 `/synapse-refresh-projects` now stays covered automatically on every later periodic audit.
 
