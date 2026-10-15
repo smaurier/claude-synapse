@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, findDuplicateCandidates } from "../src/commands/brainLint.js";
 import { chunkFile } from "../src/rag/chunk.js";
 
 const VALID_REFERENCE = `---
@@ -741,7 +741,7 @@ describe("findVerbatimOverlaps", () => {
     // Body A: 16 words → 9 shingles (16 - 8 + 1)
     const bodyA =
       "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
-    // Body B: 16 words → 9 shingles, 5 shingles initiaux partagés avec A
+    // Body B: 17 words → 10 shingles, 5 shingles initiaux partagés avec A
     // "one two ... twelve extra extra different stuff here" → seulement les 5 premiers huit-grammes matchent
     const bodyB = "one two three four five six seven eight nine ten eleven twelve extra extra different stuff here";
 
@@ -771,5 +771,99 @@ describe("findVerbatimOverlaps", () => {
 
     const pairs = findVerbatimOverlaps(files);
     expect(pairs).toHaveLength(0); // 1/9 ≈ 0.111 < 0.3, no match
+  });
+});
+
+describe("findDuplicateCandidates", () => {
+  const PROTECTED = "---\nname: g\ndescription: x\nmetadata:\n  type: feedback\n  protected: true\n---\n\ncorps";
+
+  it("réunit les deux règles", () => {
+    const files = [
+      { path: "project_x.md", content: "---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\ncorps a" },
+      { path: "reference_x.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\ncorps b" },
+    ];
+    const pairs = findDuplicateCandidates(files);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]?.rule).toBe("slug");
+  });
+
+  it("n'appaire jamais une fiche `protected`", () => {
+    const files = [
+      { path: "project_x.md", content: PROTECTED },
+      { path: "reference_x.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\ncorps" },
+    ];
+    expect(findDuplicateCandidates(files)).toEqual([]);
+  });
+
+  it("écarte une paire déjà liée par superseded_by", () => {
+    const files = [
+      { path: "project_x.md", content: "---\nname: a\ndescription: x\nmetadata:\n  type: project\n  superseded_by: reference_x.md\n---\n\ncorps" },
+      { path: "reference_x.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\ncorps" },
+    ];
+    expect(findDuplicateCandidates(files)).toEqual([]);
+  });
+
+  it("écarte l'index et les sous-index", () => {
+    // The index resembles everything it lists. On the real hub, MEMORY.md was
+    // proposed for merge with an ordinary fiche at 0.867 similarity via the
+    // verbatim rule (8-word shingles, containment 1.0 if they share a body).
+    // This fixture gives both the index and two ordinary fiches the exact same
+    // long body, so they WOULD pair via verbatim overlaps if the index were
+    // not filtered upfront.
+    const shared = "ceci est une longue phrase avec beaucoup de mots pour fabriquer des shingles de huit mots sans probleme du tout";
+    const files = [
+      { path: "MEMORY.md", content: shared },
+      { path: "MEMORY-dormant.md", content: shared },
+      { path: "project_x.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${shared}` },
+      { path: "project_y.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: project\n---\n\n${shared}` },
+    ];
+    // With the guard: only the two ordinary fiches can pair (the index and
+    // sub-index are filtered). So we get one pair: project_x <-> project_y.
+    const pairs = findDuplicateCandidates(files);
+    expect(pairs).toHaveLength(1);
+    expect([pairs[0]?.a, pairs[0]?.b].sort()).toEqual(["project_x.md", "project_y.md"]);
+  });
+
+  it("ne rend jamais deux fois la même paire quand les deux règles la trouvent", () => {
+    const shared = "ceci est une phrase assez longue pour produire plusieurs empreintes de huit mots consecutifs sans se repeter";
+    const files = [
+      { path: "project_x.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${shared}` },
+      { path: "reference_x.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${shared}` },
+    ];
+    expect(findDuplicateCandidates(files)).toHaveLength(1);
+  });
+
+  it("déduplication fonctionne même quand les deux règles émettent la paire en ordres différents (avec ordre d'entrée inversé)", () => {
+    // findSlugCollisions trie ses groupes, mais findVerbatimOverlaps émet les
+    // paires en ordre d'entrée. Quand la même paire est trouvée par les deux
+    // règles ET que l'ordre d'entrée est inversé (les fichiers arrivent dans
+    // l'ordre inverse de leur sort alphabétique), les deux règles émettent la
+    // paire avec a et b inversés l'une par rapport à l'autre. Le seul rempart
+    // est le `.sort()` dans pairKey. Sans lui, on rendrait la même paire deux fois.
+    const shared = "ceci est une phrase assez longue pour produire plusieurs empreintes de huit mots consecutifs sans se repeter";
+    const files = [
+      // Ordre d'entrée inversé : reference_x avant project_x
+      { path: "reference_x.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${shared}` },
+      { path: "project_x.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${shared}` },
+    ];
+    const pairs = findDuplicateCandidates(files);
+    expect(pairs).toHaveLength(1);
+    expect([pairs[0]?.a, pairs[0]?.b].sort()).toEqual(["project_x.md", "reference_x.md"]);
+  });
+
+  it("écarte une paire superseded_by même quand le pointeur sort alphabétiquement APRÈS sa cible", () => {
+    // L'ordre dans lequel une paire arrive (qui est a, qui est b) dépend de
+    // l'ordre d'entrée des fichiers, pas de qui supersede qui. Le test précédent
+    // (écarte une paire déjà liée) couvre le cas où le pointeur sort avant sa cible.
+    // Celui-ci couvre l'inverse. alreadyLinked doit vérifier les DEUX directions :
+    // get(a) === b ET get(b) === a.
+    const files = [
+      { path: "project_x.md", content: "---\nname: new\ndescription: y\nmetadata:\n  type: project\n---\n\ncorps" },
+      { path: "user_x.md", content: "---\nname: old\ndescription: x\nmetadata:\n  type: user\n  superseded_by: project_x.md\n---\n\ncorps" },
+    ];
+    // project_x.md sorts avant user_x.md (p < u), donc la paire arrivera avec
+    // a=project_x.md, b=user_x.md. Pour que alreadyLinked le détecte, il faut
+    // la deuxième clause : supersessionTargetByPath.get(b) === a.
+    expect(findDuplicateCandidates(files)).toEqual([]);
   });
 });

@@ -396,8 +396,10 @@ export function containment(a: Set<string>, b: Set<string>): number {
  * Pas de garde-fou de taille, contrairement à findMergeCandidatesGuarded :
  * aucun appel modèle, aucune I/O, juste opérations en-mémoire sur des sets
  * (O(n²) de comparaisons brutes, ~24000 sur 222 fiches, catégoriquement bon
- * marché). findMergeCandidatesGuarded est cher parce qu'il appelle embed() par
- * pair de chunks ; ici on paie zéro par itération.
+ * marché). findMergeCandidatesGuarded est cher parce qu'il appelle embed()
+ * par chunk pour tous les fichiers (en Promise.all), puis O(n²) de
+ * comparaisons cosineSimilarity sur les vecteurs déjà calculés ; ici on paie
+ * zéro appel modèle par itération.
  */
 export function findVerbatimOverlaps(files: { path: string; content: string }[]): DuplicateCandidate[] {
   const prepared = files
@@ -417,6 +419,72 @@ export function findVerbatimOverlaps(files: { path: string; content: string }[])
         shingleSize: SHINGLE_SIZE,
       });
     }
+  }
+  return candidates;
+}
+
+/**
+ * Unordered pair key — the sort is load-bearing. The two rules do not agree on
+ * pair orientation: findSlugCollisions sorts its groups, so emits pairs with
+ * paths in alphabetical order; findVerbatimOverlaps mirrors input file order.
+ * When the same pair is found by both rules, they may emit it with a and b
+ * swapped relative to each other. The deduplication in findDuplicateCandidates
+ * relies on this sort to collapse them into one candidate. (The fact that this
+ * works in production also depends on an upstream accident: loadCorpus pre-sorts
+ * the corpus by path, making findVerbatimOverlaps' order often match. But this
+ * function must not rely on that — it owns the guarantee.)
+ */
+function pairKey(candidate: DuplicateCandidate): string {
+  return [candidate.a, candidate.b].sort().join(" ");
+}
+
+/**
+ * Point d'entrée pour les deux rapports de détection de doublons — applique
+ * deux règles déterministes (collisions de slug et recouvrements verbatim)
+ * et écarte les paires ineligibles d'une seule traite, en avant des deux règles,
+ * pour que la garantie soit inconditionnelle.
+ *
+ * Les deux règles remplacent la comparaison O(n²) par embeddings du ancien
+ * `MergeCandidate`, qui mesurait l'équilibre écriture (les fiches feedback
+ * partagent un bloc frontmatter et une convention rédactionnelle, pas un sujet)
+ * plutôt que la vraie duplication. Les deux règles ici sont sans modèle et
+ * mesurent ce qu'elles prétendent mesurer.
+ *
+ * Trois raisons pour les écarter d'une traite :
+ * (1) `isIndexFile`: L'index (MEMORY.md) et les sous-index sont une table des
+ * matières listant toutes les fiches. Ils les resemblent toutes un peu et ne
+ * peuvent jamais être fusionnés utilement.
+ *
+ * (2) `isProtected`: Une fiche marquée `metadata.protected: true` (un garde-fou,
+ * une mémo délibérément singulière) ne doit JAMAIS être proposée pour fusion,
+ * peu importe ce que les règles suggèrent. Ce n'est pas un « filtrer les résultats
+ * si rien d'autre change » — l'exclusion doit être inconditionnelle. Les fiches
+ * protégées sont donc écartées en amont, avant toute comparaison, plutôt que
+ * filtrées des résultats après coup. C'est le seul moyen d'en faire une garantie
+ * inconditionnelle plutôt que « à moins qu'un futur changement ne filtre
+ * différemment ».
+ *
+ * (3) `supersessionTarget`: Une paire déjà liée par `metadata.superseded_by`
+ * a sa relation déjà nommée et résolue. Proposer une fusion là-dessus est du bruit.
+ */
+export function findDuplicateCandidates(files: { path: string; content: string }[]): DuplicateCandidate[] {
+  const eligible = files.filter((f) => !isIndexFile(f.path) && !isProtected(f.content));
+  const supersessionTargetByPath = new Map(eligible.map((f) => [f.path, supersessionTarget(f.content)]));
+
+  const alreadyLinked = (candidate: DuplicateCandidate): boolean =>
+    supersessionTargetByPath.get(candidate.a) === candidate.b ||
+    supersessionTargetByPath.get(candidate.b) === candidate.a;
+
+  const seen = new Set<string>();
+  const candidates: DuplicateCandidate[] = [];
+  // La collision de slug d'abord : c'est la règle la plus sûre, donc c'est son
+  // explication qu'on garde si les deux règles trouvent la même paire.
+  for (const candidate of [...findSlugCollisions(eligible.map((f) => f.path)), ...findVerbatimOverlaps(eligible)]) {
+    if (alreadyLinked(candidate)) continue;
+    const key = pairKey(candidate);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(candidate);
   }
   return candidates;
 }
