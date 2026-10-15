@@ -66,6 +66,22 @@ export interface MergeCandidate {
     b: string;
     score: number;
 }
+/**
+ * Backlog item 39 (13/10/2026, measured 15/10): the frontmatter is stripped
+ * before a file is compared to another, because it is the single biggest
+ * source of false positives. On the real 222-fiche hub, 59 pairs came back
+ * at 0.85 and 47 of them were feedback<->feedback: those fiches share a
+ * frontmatter block (name / description / metadata.type / created / expires)
+ * and a writing template, and the frontmatter dominates the first chunk of
+ * every one of them. The similarity was measuring the register, not the
+ * subject. Dropping it takes those 47 to 0.
+ *
+ * Only this check strips it. The RAG index keeps embedding whole files on
+ * purpose — searching for "the fiche about X" legitimately matches on the
+ * description — and the two must never share a transformed embedding space
+ * (same reasoning as the chunker note above).
+ */
+export declare function bodyWithoutFrontmatter(content: string): string;
 export declare function findMergeCandidates(files: {
     path: string;
     content: string;
@@ -75,11 +91,19 @@ export declare function findMergeCandidates(files: {
  * directly. Above maxFiles, skips the O(n²) comparison entirely and reports
  * why via a corpus-wide finding — never silently returns an empty list that
  * would read as "no duplicates found" when the real answer is "not checked".
+ *
+ * Backlog item 39, second half: the ranked cap lives here, not in
+ * findMergeCandidates, for the same reason the size guard does. The pure
+ * algorithm must never silently drop a result it found; the application layer
+ * decides how many suggestions a human can actually act on, and says out loud
+ * how many it held back. 59 suggestions is not a list anyone reads, so the
+ * cap is what keeps the report readable as the corpus grows, rather than
+ * leaving it readable by luck.
  */
 export declare function findMergeCandidatesGuarded(files: {
     path: string;
     content: string;
-}[], embed: (text: string) => number[] | Promise<number[]>, chunkFn: (path: string, content: string) => Chunk[] | Promise<Chunk[]>, maxFiles: number): Promise<{
+}[], embed: (text: string) => number[] | Promise<number[]>, chunkFn: (path: string, content: string) => Chunk[] | Promise<Chunk[]>, maxFiles: number, maxSuggestions?: number): Promise<{
     mergeCandidates: MergeCandidate[];
     findings: LintFinding[];
 }>;

@@ -275,6 +275,50 @@ describe("findMergeCandidates", () => {
     expect(await findMergeCandidates(files, fakeEmbed, undefined, 0.99)).toEqual([]);
   });
 
+  // Backlog item 39 (13/10): on a real 222-fiche hub, 59 pairs came back at
+  // 0.85 and 47 of them were feedback<->feedback, because those fiches share
+  // a frontmatter block and a writing template. The similarity was measuring
+  // the register, not the subject. Measured 15/10: dropping the frontmatter
+  // from the compared text takes those 47 to 0.
+  it("compares bodies, so identical bodies pair despite different frontmatter", async () => {
+    const files = [
+      { path: "a.md", content: "---\nname: a\ndescription: la fiche a\nmetadata:\n  type: feedback\n---\n\nle même corps exactement" },
+      { path: "b.md", content: "---\nname: b\ndescription: tout autre chose\nmetadata:\n  type: project\n  created: 2026-01-01\n---\n\nle même corps exactement" },
+    ];
+
+    const candidates = await findMergeCandidates(files, fakeEmbed, undefined, 0.99);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ a: "a.md", b: "b.md" });
+  });
+
+  // Consequence of comparing bodies: a fiche reduced to its frontmatter now
+  // has an empty body, and two empty bodies are identical. Such a fiche has
+  // nothing to compare, so it must never pair rather than pair with every
+  // other stub.
+  it("never pairs fiches that are nothing but frontmatter", async () => {
+    const files = [
+      { path: "stub-a.md", content: "---\nname: a\ndescription: la fiche a\nmetadata:\n  type: reference\n---\n" },
+      { path: "stub-b.md", content: "---\nname: b\ndescription: la fiche b\nmetadata:\n  type: project\n---\n" },
+    ];
+
+    expect(await findMergeCandidates(files, fakeEmbed, undefined, 0.5)).toEqual([]);
+  });
+
+  // Found on the real hub 15/10, after the two fixes above: the report
+  // offered "MEMORY.md <-> feedback_garde_fous.md" at 0.867. Item 37 had
+  // excluded the index from the lint, not from the duplicate detection. The
+  // index is a table of contents listing every fiche, so it resembles all of
+  // them a little and can never be merged into one of them.
+  it("never offers the index as a merge candidate", async () => {
+    const files = [
+      { path: "MEMORY.md", content: "# Memory Index\n\nexactement le même contenu" },
+      { path: "feedback_x.md", content: "---\nname: x\ndescription: x\nmetadata:\n  type: feedback\n---\n\nexactement le même contenu" },
+    ];
+
+    expect(await findMergeCandidates(files, fakeEmbed, undefined, 0.5)).toEqual([]);
+  });
+
   it("sorts candidates by descending score", async () => {
     const files = [
       { path: "a.md", content: "aaa" },
@@ -419,6 +463,43 @@ describe("findMergeCandidatesGuarded", () => {
 
     expect(result.findings).toEqual([]);
     expect(result.mergeCandidates).toHaveLength(1);
+  });
+
+  // Backlog item 39, second half: 59 suggestions is not a list anyone reads.
+  // The cap is the structural guarantee that the report stays readable even
+  // if the corpus grows, and it is applied here rather than inside
+  // findMergeCandidates for the same reason the size guard is: the pure
+  // algorithm must not silently drop results, the application layer decides
+  // how many a human can act on and says so.
+  describe("plafond de suggestions", () => {
+    function identicalFiles(count: number): { path: string; content: string }[] {
+      return Array.from({ length: count }, (_, i) => ({ path: `f${i}.md`, content: "exactement le même contenu" }));
+    }
+
+    it("caps the suggestions and says how many it held back", async () => {
+      const result = await findMergeCandidatesGuarded(identicalFiles(6), fakeEmbed, chunkFile, 100, 10);
+
+      expect(result.mergeCandidates).toHaveLength(10);
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0]?.message).toContain("15");
+      expect(result.findings[0]?.message).toContain("10");
+    });
+
+    it("keeps the highest-ranked suggestions, in order", async () => {
+      const files = identicalFiles(6);
+      const all = await findMergeCandidates(files, fakeEmbed, chunkFile);
+
+      const result = await findMergeCandidatesGuarded(files, fakeEmbed, chunkFile, 100, 10);
+
+      expect(result.mergeCandidates).toEqual(all.slice(0, 10));
+    });
+
+    it("says nothing when the suggestions already fit under the cap", async () => {
+      const result = await findMergeCandidatesGuarded(identicalFiles(2), fakeEmbed, chunkFile, 100, 10);
+
+      expect(result.mergeCandidates).toHaveLength(1);
+      expect(result.findings).toEqual([]);
+    });
   });
 
   it("skips the comparison and reports why when the corpus exceeds the threshold", async () => {

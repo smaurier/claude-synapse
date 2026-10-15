@@ -285,6 +285,25 @@ function isProtected(content) {
 function supersessionTarget(content) {
     return extractFrontmatter(content)?.fields["metadata.superseded_by"];
 }
+/**
+ * Backlog item 39 (13/10/2026, measured 15/10): the frontmatter is stripped
+ * before a file is compared to another, because it is the single biggest
+ * source of false positives. On the real 222-fiche hub, 59 pairs came back
+ * at 0.85 and 47 of them were feedback<->feedback: those fiches share a
+ * frontmatter block (name / description / metadata.type / created / expires)
+ * and a writing template, and the frontmatter dominates the first chunk of
+ * every one of them. The similarity was measuring the register, not the
+ * subject. Dropping it takes those 47 to 0.
+ *
+ * Only this check strips it. The RAG index keeps embedding whole files on
+ * purpose — searching for "the fiche about X" legitimately matches on the
+ * description — and the two must never share a transformed embedding space
+ * (same reasoning as the chunker note above).
+ */
+export function bodyWithoutFrontmatter(content) {
+    const withoutBom = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+    return withoutBom.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "");
+}
 export async function findMergeCandidates(files, embed, chunkFn = chunkFile, threshold = 0.85) {
     // NB: this function has no size guard of its own — O(n²) pairwise chunk
     // comparison, measured 16/08 at 117s for 2000 files (scripts/scale-
@@ -293,14 +312,26 @@ export async function findMergeCandidates(files, embed, chunkFn = chunkFile, thr
     // above SharedConfig.mergeCandidatesMaxFiles. This function stays a pure
     // algorithm — the size policy belongs at the application layer, same
     // reasoning as checkWipLimit being a separate concern from lintFile.
-    const eligibleFiles = files.filter((f) => !isProtected(f.content));
+    // A fiche reduced to its frontmatter has an empty comparison body, and two
+    // empty bodies embed identically — it would pair with every other stub.
+    // Nothing to compare means no pairing, so it is dropped before embedding
+    // (which also spares the embed call).
+    // The index is excluded for the same reason it is excluded from the lint
+    // (item 37): it is a table of contents, not a memory. Found on the real hub
+    // once the frontmatter stopped dominating the scores — it listed every
+    // fiche, so it resembled all of them a little, and "merge MEMORY.md into
+    // feedback_garde_fous.md" is not an action that exists.
+    const eligibleFiles = files
+        .filter((f) => !isIndexFile(f.path))
+        .map((f) => ({ path: f.path, content: f.content, body: bodyWithoutFrontmatter(f.content) }))
+        .filter((f) => !isProtected(f.content) && f.body.trim() !== "");
     // metadata.superseded_by (found redundant 16/08 by manual testing on a
     // disposable hub, not by guessing): a pair already linked that way has
     // its relationship already named and resolved — suggesting a merge on
     // top of that is noise, not a second opinion.
     const supersessionTargetByPath = new Map(eligibleFiles.map((f) => [f.path, supersessionTarget(f.content)]));
     const fileEmbeddings = await Promise.all(eligibleFiles.map(async (f) => {
-        const chunks = await chunkFn(f.path, f.content);
+        const chunks = await chunkFn(f.path, f.body);
         return { path: f.path, embeddings: await Promise.all(chunks.map((c) => embed(c.text))) };
     }));
     const candidates = [];
@@ -325,13 +356,22 @@ export async function findMergeCandidates(files, embed, chunkFn = chunkFile, thr
     }
     return candidates.sort((a, b) => b.score - a.score);
 }
+const DEFAULT_MAX_SUGGESTIONS = 10;
 /**
  * The size-guarded entrypoint real callers use instead of findMergeCandidates
  * directly. Above maxFiles, skips the O(n²) comparison entirely and reports
  * why via a corpus-wide finding — never silently returns an empty list that
  * would read as "no duplicates found" when the real answer is "not checked".
+ *
+ * Backlog item 39, second half: the ranked cap lives here, not in
+ * findMergeCandidates, for the same reason the size guard does. The pure
+ * algorithm must never silently drop a result it found; the application layer
+ * decides how many suggestions a human can actually act on, and says out loud
+ * how many it held back. 59 suggestions is not a list anyone reads, so the
+ * cap is what keeps the report readable as the corpus grows, rather than
+ * leaving it readable by luck.
  */
-export async function findMergeCandidatesGuarded(files, embed, chunkFn, maxFiles) {
+export async function findMergeCandidatesGuarded(files, embed, chunkFn, maxFiles, maxSuggestions = DEFAULT_MAX_SUGGESTIONS) {
     if (files.length > maxFiles) {
         return {
             mergeCandidates: [],
@@ -347,6 +387,21 @@ export async function findMergeCandidatesGuarded(files, embed, chunkFn, maxFiles
             ],
         };
     }
-    return { mergeCandidates: await findMergeCandidates(files, embed, chunkFn), findings: [] };
+    const ranked = await findMergeCandidates(files, embed, chunkFn);
+    if (ranked.length <= maxSuggestions)
+        return { mergeCandidates: ranked, findings: [] };
+    return {
+        mergeCandidates: ranked.slice(0, maxSuggestions),
+        findings: [
+            {
+                path: "(corpus)",
+                severity: "warning",
+                message: `${ranked.length} paires candidates au-dessus du seuil : seules les ${maxSuggestions} mieux ` +
+                    `classées sont listées, ${ranked.length - maxSuggestions} masquées pour garder le rapport ` +
+                    `lisible. Un nombre aussi élevé veut généralement dire que le seuil ne discrimine plus sur ` +
+                    `ce corpus, pas qu'il y a autant de doublons.`,
+            },
+        ],
+    };
 }
 //# sourceMappingURL=brainLint.js.map
