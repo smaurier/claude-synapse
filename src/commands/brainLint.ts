@@ -270,6 +270,31 @@ export function checkSupersessionReferences(files: { path: string; content: stri
   return findings;
 }
 
+/** Préfixes de type de la convention de nommage, dans leurs deux orthographes
+ *  (`project_` et `project-`) : le hub réel contient les deux (vérifié sur le hub réel
+ *  222-fiches le 15/10/2026). */
+const SLUG_TYPE_PREFIXES = ["project", "reference", "feedback", "user"];
+
+/**
+ * Le radical d'un nom de fiche : son nom de fichier sans préfixe de type, sans
+ * séparateurs et en minuscules. `null` pour une fiche dont le nom ne porte pas
+ * un préfixe de type reconnu, auquel cas la règle de collision ne s'y applique
+ * pas. Également `null` pour un radical vide (ex. `project_.md`), car il n'est
+ * pas utile pour la détection de collisions.
+ */
+export function slugStem(path: string): string | null {
+  const basename = (path.split("/").pop() ?? path).replace(/\.md$/i, "").toLowerCase();
+  for (const prefix of SLUG_TYPE_PREFIXES) {
+    for (const separator of ["_", "-"]) {
+      if (basename.startsWith(prefix + separator)) {
+        const stem = basename.slice(prefix.length + 1).replace(/[-_]/g, "");
+        return stem === "" ? null : stem;
+      }
+    }
+  }
+  return null;
+}
+
 export interface MergeCandidate {
   a: string;
   b: string;

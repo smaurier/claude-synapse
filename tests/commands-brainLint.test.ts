@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem } from "../src/commands/brainLint.js";
 import { chunkFile } from "../src/rag/chunk.js";
 
 const VALID_REFERENCE = `---
@@ -61,6 +61,39 @@ describe("extractFrontmatter", () => {
     const fm = extractFrontmatter(withBom);
     expect(fm?.fields.name).toBe("exemple-projet");
     expect(fm?.fields["metadata.type"]).toBe("project");
+  });
+});
+
+describe("slugStem", () => {
+  it("retire le préfixe de type et les séparateurs", () => {
+    expect(slugStem("project_un_sujet.md")).toBe("unsujet");
+    expect(slugStem("reference_un_sujet.md")).toBe("unsujet");
+  });
+
+  it("traite `-` et `_` comme équivalents, dans le préfixe comme dans le radical", () => {
+    expect(slugStem("project-une-chose.md")).toBe("unechose");
+    expect(slugStem("project_une_chose.md")).toBe("unechose");
+  });
+
+  it("ignore un chemin de sous-dossier", () => {
+    expect(slugStem("archive/project_un_sujet.md")).toBe("unsujet");
+  });
+
+  it("rend null pour une fiche sans préfixe de type reconnu", () => {
+    expect(slugStem("sans-prefixe-de-type.md")).toBeNull();
+    expect(slugStem("MEMORY.md")).toBeNull();
+  });
+
+  it("accepte les préfixes indépendamment de la casse du nom de fichier", () => {
+    expect(slugStem("Project_Un_Sujet.md")).toBe("unsujet");
+  });
+
+  it("rend null pour un radical vide", () => {
+    expect(slugStem("project_.md")).toBeNull();
+  });
+
+  it("détecte le préfixe user", () => {
+    expect(slugStem("user_mon_profil.md")).toBe("monprofil");
   });
 });
 
