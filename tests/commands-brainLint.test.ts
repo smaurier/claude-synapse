@@ -554,13 +554,9 @@ describe("findMergeCandidatesGuarded", () => {
 describe("findSlugCollisions", () => {
   it("apparie deux fiches de types différents au même radical", () => {
     const pairs = findSlugCollisions(["project_un_sujet.md", "reference_un_sujet.md"]);
-    expect(pairs).toHaveLength(1);
-    expect(pairs[0]).toMatchObject({
-      a: "project_un_sujet.md",
-      b: "reference_un_sujet.md",
-      rule: "slug",
-      stem: "unsujet",
-    });
+    expect(pairs).toEqual([
+      { a: "project_un_sujet.md", b: "reference_un_sujet.md", rule: "slug", stem: "unsujet" },
+    ]);
   });
 
   it("apparie deux fiches du même type dont seuls les séparateurs diffèrent", () => {
