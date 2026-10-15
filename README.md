@@ -92,8 +92,9 @@ Core mechanism built and tested: **413 tests**, real-hub validation (not just fi
 and fixed several real bugs along the way — a lexical fallback for bare-acronym search, word-
 boundary matching to avoid false positives, incremental indexing, and (item 44) two deterministic
 rules for probable duplicates — a slug-stem collision and a verbatim n-gram overlap — replacing a
-cosine-similarity detector that measured over 0.69 on fiches the author considered unrelated and
-could not be fixed by tuning a threshold. Scale-tested too, not just assumed: search stays fast
+cosine-similarity detector that scored unrelated fiches (0.832-0.834) higher than some genuinely
+related ones (0.69-0.83): no threshold could separate the two populations. Scale-tested too, not
+just assumed: search stays fast
 into the thousands of files; the old embedding-based duplicate detector was the one piece that
 didn't (O(n²) over a per-file model call), and rather than guard it against a file-count ceiling
 it was replaced outright — both new rules are O(n²) over cheap in-memory set operations, no model
