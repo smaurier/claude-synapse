@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, findMergeCandidates, findMergeCandidatesGuarded, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps } from "../src/commands/brainLint.js";
 import { chunkFile } from "../src/rag/chunk.js";
 
 const VALID_REFERENCE = `---
@@ -679,5 +679,54 @@ describe("checkWipLimit", () => {
       content: "---\nname: x\ndescription: x\nmetadata:\n  type: reference\n---\n",
     }));
     expect(checkWipLimit(files, new Date("2026-08-14"), 5)).toEqual([]);
+  });
+});
+
+describe("comparableWords", () => {
+  it("normalise la casse, les accents et la ponctuation", () => {
+    expect(comparableWords("Été, déjà : **gras** !")).toEqual(["ete", "deja", "gras"]);
+  });
+
+  it("retire le code inline, qui n'est pas de la prose", () => {
+    expect(comparableWords("avant `const x = 1` apres")).toEqual(["avant", "apres"]);
+  });
+});
+
+describe("findVerbatimOverlaps", () => {
+  const LONG = "ceci est une phrase assez longue pour produire plusieurs empreintes de huit mots consecutifs sans se repeter du tout";
+
+  it("apparie deux corps partageant un long passage mot pour mot", () => {
+    const files = [
+      { path: "a.md", content: `---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n\n${LONG}` },
+      { path: "b.md", content: `---\nname: b\ndescription: y\nmetadata:\n  type: reference\n---\n\n${LONG}` },
+    ];
+    const pairs = findVerbatimOverlaps(files);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ a: "a.md", b: "b.md", rule: "verbatim", shingleSize: 8 });
+  });
+
+  it("n'apparie pas deux corps au vocabulaire proche mais sans passage commun", () => {
+    const files = [
+      { path: "a.md", content: "le chat dort sur le tapis rouge du salon pendant que la pluie tombe" },
+      { path: "b.md", content: "un tapis rouge attend dans le salon et la pluie continue de tomber ce soir" },
+    ];
+    expect(findVerbatimOverlaps(files)).toEqual([]);
+  });
+
+  it("ne compare jamais le frontmatter, identique d'une fiche à l'autre", () => {
+    const sameFrontmatter = "---\nname: n\ndescription: une description strictement identique sur les deux fiches ici\nmetadata:\n  type: feedback\n  created: 2026-01-01\n  expires: ongoing\n---\n\n";
+    const files = [
+      { path: "a.md", content: `${sameFrontmatter}corps completement different du second avec ses propres mots a lui` },
+      { path: "b.md", content: `${sameFrontmatter}rien a voir ici, autre sujet, autres termes, aucune phrase partagee` },
+    ];
+    expect(findVerbatimOverlaps(files)).toEqual([]);
+  });
+
+  it("n'apparie pas une fiche réduite à son frontmatter", () => {
+    const files = [
+      { path: "a.md", content: "---\nname: a\ndescription: x\nmetadata:\n  type: project\n---\n" },
+      { path: "b.md", content: "---\nname: b\ndescription: y\nmetadata:\n  type: project\n---\n" },
+    ];
+    expect(findVerbatimOverlaps(files)).toEqual([]);
   });
 });

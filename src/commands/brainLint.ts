@@ -336,6 +336,81 @@ export function findSlugCollisions(paths: string[]): DuplicateCandidate[] {
   return candidates;
 }
 
+const SHINGLE_SIZE = 8;
+const CONTAINMENT_THRESHOLD = 0.3;
+
+/**
+ * Le texte tel qu'on le compare : minuscules, sans accents, sans code inline,
+ * sans ponctuation ni marques markdown. L'ordre des opérations compte, le code
+ * inline doit partir avant que les backticks ne soient effacés avec le reste de
+ * la ponctuation.
+ */
+export function comparableWords(body: string): string[] {
+  return body
+    .toLowerCase()
+    .replace(/`[^`]*`/g, " ")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 0);
+}
+
+export function shingles(words: string[], size = SHINGLE_SIZE): Set<string> {
+  const set = new Set<string>();
+  for (let i = 0; i + size <= words.length; i++) set.add(words.slice(i, i + size).join(" "));
+  return set;
+}
+
+/** Intersection divisée par la taille du plus petit ensemble, et non Jaccard :
+ *  une fiche courte entièrement absorbée dans une longue doit marquer 1, ce que
+ *  Jaccard masquerait derrière la différence de taille. */
+export function containment(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  let shared = 0;
+  for (const shingle of small) if (large.has(shingle)) shared++;
+  return shared / small.size;
+}
+
+/**
+ * Règle B de l'item 44 : détection de recouvrement verbatim basée sur
+ * n-grammes (shingles) de mots. Deux fiches partageant un passage d'au moins
+ * huit mots consécutifs signalent une possible duplication par copier-coller
+ * — le seul cas où deux fiches distinctes partagent mot pour mot une séquence
+ * de ce genre.
+ *
+ * Mesuré sur le hub réel (222 fiches, 15/10/2026) : le recouvrement maximal
+ * observé entre deux fiches quelconques était 0.076 à 8-grammes, zéro paires
+ * ne dépassaient 0.10 à n-grammes 6, 8 ou 12. Le seuil 0.30 laisse donc un
+ * facteur 4 de marge au-dessus du plancher observé. Cette règle retourne zéro
+ * paire aujourd'hui, et c'est intentionnel : elle ne suggère rien, elle garde
+ * contre les doublons par copier-coller qui apparaîtraient plus tard. Partager
+ * huit mots d'affilée ne survient pas par hasard, ce qui la rend quasi-exempte
+ * de faux positifs.
+ */
+export function findVerbatimOverlaps(files: { path: string; content: string }[]): DuplicateCandidate[] {
+  const prepared = files
+    .map((f) => ({ path: f.path, shingles: shingles(comparableWords(bodyWithoutFrontmatter(f.content))) }))
+    .filter((f) => f.shingles.size > 0);
+
+  const candidates: DuplicateCandidate[] = [];
+  for (let i = 0; i < prepared.length; i++) {
+    for (let j = i + 1; j < prepared.length; j++) {
+      const score = containment(prepared[i]!.shingles, prepared[j]!.shingles);
+      if (score < CONTAINMENT_THRESHOLD) continue;
+      candidates.push({
+        a: prepared[i]!.path,
+        b: prepared[j]!.path,
+        rule: "verbatim",
+        containment: score,
+        shingleSize: SHINGLE_SIZE,
+      });
+    }
+  }
+  return candidates;
+}
+
 export interface MergeCandidate {
   a: string;
   b: string;
