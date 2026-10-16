@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import {
   auditDependencies,
   collectDependencyFindings,
   runCommandCapturingStdout,
+  resolveNpmBinary,
   type NpmAuditReport,
   type NpmAuditVulnerability,
   type NpmOutdatedReport,
@@ -214,25 +215,42 @@ describe("auditDependencies", () => {
 });
 
 describe("runCommandCapturingStdout (le piège du code de sortie non-zéro)", () => {
+  // Fichiers plutôt que `-e "<script inline>"` : `shell: true` (nécessaire
+  // pour .cmd Windows, voir plus bas) fait passer la commande par cmd.exe,
+  // qui traite `(`, `)` et `;` comme des métacaractères — un script inline
+  // contenant ces caractères (comme `JSON.stringify({ok: true})`) se
+  // retrouve tronqué par le shell avant même d'atteindre node. Un fichier
+  // évite la question entièrement : aucun caractère spécial ne traverse la
+  // ligne de commande, seul le chemin du fichier (sans espace ici).
+  let scriptsDir: string;
+
+  beforeEach(() => {
+    scriptsDir = mkdtempSync(join(tmpdir(), "synapse-dep-audit-scripts-"));
+  });
+
+  afterEach(() => {
+    rmTree(scriptsDir);
+  });
+
+  function writeScript(content: string): string {
+    const path = join(scriptsDir, "script.cjs");
+    writeFileSync(path, content, "utf8");
+    return path;
+  }
+
   it("still parses stdout when the process exits with a non-zero code — the exact trap of npm audit/outdated", async () => {
-    const stdout = await runCommandCapturingStdout(
-      process.execPath,
-      ["-e", "console.log(JSON.stringify({ok: true})); process.exitCode = 1;"],
-      process.cwd(),
-    );
+    const script = writeScript("console.log(JSON.stringify({ ok: true })); process.exitCode = 1;");
+
+    const stdout = await runCommandCapturingStdout(process.execPath, [script], process.cwd());
 
     expect(JSON.parse(stdout)).toEqual({ ok: true });
   });
 
   it("gives up after the timeout rather than hanging, and resolves (never rejects)", async () => {
+    const script = writeScript("setTimeout(function () {}, 5000);");
     const start = Date.now();
 
-    const stdout = await runCommandCapturingStdout(
-      process.execPath,
-      ["-e", "setTimeout(() => {}, 5000)"],
-      process.cwd(),
-      200,
-    );
+    const stdout = await runCommandCapturingStdout(process.execPath, [script], process.cwd(), 200);
 
     expect(Date.now() - start).toBeLessThan(4000);
     expect(typeof stdout).toBe("string");
@@ -240,6 +258,28 @@ describe("runCommandCapturingStdout (le piège du code de sortie non-zéro)", ()
 
   it("resolves with an empty string rather than rejecting when the command itself doesn't exist", async () => {
     await expect(runCommandCapturingStdout("une-commande-qui-nexiste-pas-xyz", [], process.cwd())).resolves.toBe("");
+  });
+
+  /**
+   * Trouvé le 16/10/2026 (revue du coordinateur) : `execFile("npm", ...)`
+   * rend ENOENT sous Windows (le binaire s'appelle `npm.cmd`), et comme
+   * toute l'implémentation est fail-silent par conception (c'est le bon
+   * choix pour un hook SessionStart), ce test-ci était le seul capable de
+   * l'attraper — toutes les autres tests injectent un faux runner, donc
+   * rien n'exécutait jamais le vrai chemin. Sans ce test, le check restait
+   * muet pour toujours sur Windows en ayant l'air parfaitement sain : c'est
+   * exactement le mode de panne que cet item devait éviter.
+   *
+   * `npm --version` plutôt que `npm audit`/`npm outdated` : hors-ligne et
+   * instantané, donc ni lent ni flaky — contrairement aux deux vraies
+   * commandes qui interrogent le registre. Ce test tourne sur les deux
+   * jambes de la matrice CI (ubuntu-latest, windows-latest) et c'est le
+   * seul de cette tâche qui peut échouer pour une raison de plateforme.
+   */
+  it("spawns the real, platform-correct npm binary and gets real stdout back (npm --version, offline, instant)", async () => {
+    const stdout = await runCommandCapturingStdout(resolveNpmBinary(), ["--version"], process.cwd());
+
+    expect(stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
   });
 });
 

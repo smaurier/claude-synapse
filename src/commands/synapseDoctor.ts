@@ -22,10 +22,15 @@
  * `dependencyAudit.ts` (vulnérabilités npm et dépendances obsolètes du
  * plugin lui-même) — c'est ici que l'audit périodique existant devient
  * l'endroit naturel où brancher cette vérification, plutôt que d'inventer un
- * second mécanisme de cadence. `pluginRoot` est optionnel : sans lui (vieux
- * callers, tests existants), le check est simplement absent du rapport —
- * jamais une erreur — exactement la posture fail-silent documentée dans
- * dependencyAudit.ts.
+ * second mécanisme de cadence. `pluginRoot` est un paramètre OBLIGATOIRE,
+ * pas optionnel : un garde optionnel est un garde qui pourrit — exactement
+ * la même objection déjà tranchée sur `embedderIdentity` dans
+ * `rebuildIfStale`. Un troisième paramètre optionnel qu'un refactor futur
+ * oublie de passer à un appel fait taire ce check pour toujours, sans
+ * aucun signal — précisément le mode de panne que cet item devait éviter.
+ * `collectDependencyFindings` reste fail-silent sur ses échecs internes
+ * (npm absent, réseau, JSON invalide) ; ce n'est pas la même chose que
+ * rendre sa propre invocation optionnelle ici.
  */
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, recordMachineSeen, DEFAULT_SHARED_CONFIG } from "../config/config.js";
@@ -50,7 +55,7 @@ export interface SynapseDoctorReport {
   knownMachines: Record<string, string>;
 }
 
-export async function runSynapseDoctor(pluginDataDir: string, linkPath: string, pluginRoot?: string): Promise<SynapseDoctorReport> {
+export async function runSynapseDoctor(pluginDataDir: string, linkPath: string, pluginRoot: string): Promise<SynapseDoctorReport> {
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   recordMachineSeen(local.hubClonePath, local.machineId);
 
@@ -76,9 +81,7 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string, 
   const sharedForRead = readSharedConfig(local.hubClonePath);
   const duplicateCandidates = findDuplicateCandidates(corpus);
   const citedCodeDriftFindings = await checkCitedCodeDrift(corpus, createGitLastCommitDateResolver(local.knownProjectRoots ?? {}));
-  // Sans pluginRoot (callers/tests qui n'ont pas encore été mis à jour),
-  // aucune vérification n'est tentée — pas d'erreur, juste rien à ajouter.
-  const dependencyFindings = pluginRoot ? await collectDependencyFindings(pluginRoot) : [];
+  const dependencyFindings = await collectDependencyFindings(pluginRoot);
 
   const findings = [
     ...lintCorpus(corpus),

@@ -21,6 +21,15 @@
  * Records this machine in the device registry (16/08, SharedConfig.
  * knownMachines) unconditionally — every SessionStart, not gated on
  * projectDir, since presence tracking doesn't need a project context.
+ *
+ * Backlog item 49 (16/10/2026) : `pluginRoot` est un troisième paramètre
+ * OBLIGATOIRE, pas optionnel — un refactor qui oublierait de le passer à un
+ * appel ferait taire le check de dépendances pour toujours, sans aucun
+ * signal (voir le raisonnement complet sur runSynapseDoctor). `projectDir`
+ * reste typé `string | undefined` plutôt que `?` pour permettre cet ordre :
+ * TypeScript interdit un paramètre requis après un paramètre optionnel, donc
+ * un appelant sans projectDir doit passer `undefined` explicitement, jamais
+ * l'omettre.
  */
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, recordMachineSeen } from "../config/config.js";
 import { refreshHubIndex } from "../rag/searchHub.js";
@@ -47,10 +56,6 @@ export async function runRefreshIndex(pluginDataDir, projectDir, pluginRoot) {
     if (!isAuditOverdue(shared.lastAuditAt, shared.auditCadenceDays)) {
         return { auditTriggered: false };
     }
-    // pluginRoot (backlog 49) : transmis par refreshIndexCli.ts, qui le
-    // calcule déjà pour ensureDependencies() — juste passé plus loin ici pour
-    // que /synapse-doctor puisse brancher dependencyAudit.ts sur son propre
-    // package.json. Optionnel pour ne rien casser d'un appelant qui ne l'a pas.
     const auditReport = await runSynapseDoctor(pluginDataDir, projectMemoryLinkPath(projectDir), pluginRoot);
     return { auditTriggered: true, auditReport };
 }

@@ -10,13 +10,22 @@ import { describeWithModel } from "./helpers/model.js";
 let pluginDataDir: string;
 let hubDir: string;
 let root: string;
+// pluginRoot est désormais un paramètre OBLIGATOIRE de runRefreshIndex
+// (backlog 49, suite au signalement du coordinateur). Ce dossier n'a
+// volontairement pas de package.json : quand /synapse-doctor tourne, la
+// vérification de dépendances échoue en silence (pas de npm shellé) — les
+// tests ci-dessous qui ne portent pas sur cette vérification restent donc
+// rapides et hermétiques.
+let pluginRootWithoutPackageJson: string;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "synapse-cmd-refresh-"));
   pluginDataDir = join(root, "plugin-data");
   hubDir = join(root, "hub");
+  pluginRootWithoutPackageJson = join(root, "plugin-root-sans-package-json");
   mkdirSync(pluginDataDir, { recursive: true });
   mkdirSync(hubDir, { recursive: true });
+  mkdirSync(pluginRootWithoutPackageJson, { recursive: true });
 });
 
 afterEach(() => {
@@ -25,7 +34,7 @@ afterEach(() => {
 
 describeWithModel("runRefreshIndex", () => {
   it("throws a clear error when no LocalConfig was ever initialized", async () => {
-    await expect(runRefreshIndex(pluginDataDir)).rejects.toThrow(/synapse-init/);
+    await expect(runRefreshIndex(pluginDataDir, undefined, pluginRootWithoutPackageJson)).rejects.toThrow(/synapse-init/);
   });
 
   it("builds the hub's index without needing a query", async () => {
@@ -36,7 +45,7 @@ describeWithModel("runRefreshIndex", () => {
     });
     writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
 
-    const result = await runRefreshIndex(pluginDataDir);
+    const result = await runRefreshIndex(pluginDataDir, undefined, pluginRootWithoutPackageJson);
 
     expect(existsSync(join(hubDir, ".synapse", "index.sqlite"))).toBe(true);
     expect(result.auditTriggered).toBe(false); // no projectDir given — audit needs it for linkPath
@@ -52,7 +61,7 @@ describeWithModel("runRefreshIndex", () => {
     });
     writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
 
-    await runRefreshIndex(pluginDataDir);
+    await runRefreshIndex(pluginDataDir, undefined, pluginRootWithoutPackageJson);
 
     expect(readSharedConfig(hubDir).knownMachines).toHaveProperty("workstation-a");
   }, 120_000);
@@ -67,7 +76,7 @@ describeWithModel("runRefreshIndex", () => {
     const projectDir = join(root, "mon-projet");
     mkdirSync(join(projectDir, ".claude"), { recursive: true });
 
-    const result = await runRefreshIndex(pluginDataDir, projectDir);
+    const result = await runRefreshIndex(pluginDataDir, projectDir, pluginRootWithoutPackageJson);
 
     expect(result.auditTriggered).toBe(true); // lastAuditAt was never set — overdue by definition
     expect(result.auditReport?.fileCount).toBe(1);
@@ -75,8 +84,9 @@ describeWithModel("runRefreshIndex", () => {
 
   // Backlog 49 : pluginRoot (calculé par refreshIndexCli.ts via
   // resolvePluginRoot) doit vraiment traverser runRefreshIndex jusqu'à
-  // /synapse-doctor — sans casser le reste du rapport si ce troisième
-  // paramètre est absent (cas de tous les tests ci-dessus) ou présent.
+  // /synapse-doctor, avec un vrai package.json cette fois (contrairement
+  // aux tests ci-dessus, qui utilisent pluginRootWithoutPackageJson parce
+  // qu'ils ne portent pas sur cette vérification).
   it("threads pluginRoot through to /synapse-doctor without breaking the rest of the report", async () => {
     writeLocalConfig(join(pluginDataDir, "local-config.json"), {
       hubUrl: "git@github.com:example-user/my-hub.git",
