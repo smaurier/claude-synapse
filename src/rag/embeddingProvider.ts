@@ -22,6 +22,9 @@ import { AutoTokenizer, pipeline, type FeatureExtractionPipeline, type PreTraine
 import { chunkFileByTokens, type Tokenizer } from "./tokenChunk.js";
 import type { Chunk } from "./chunk.js";
 import { readSharedConfig, writeSharedConfig } from "../config/config.js";
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export const DEFAULT_MODEL_ID = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const MODEL_ID = DEFAULT_MODEL_ID;
@@ -132,4 +135,85 @@ export function ensurePinnedEmbeddingModel(hubClonePath: string): string {
     );
   }
   return DEFAULT_MODEL_ID;
+}
+
+/**
+ * Reads the @huggingface/transformers version actually installed on disk,
+ * straight from ITS OWN package.json — not from this plugin's package.json
+ * dependency range (e.g. "^4.3.1"), which says what was ALLOWED at install
+ * time, not what `npm install` actually resolved.
+ *
+ * The obvious one-liner, `require.resolve("@huggingface/transformers/package.json")`,
+ * does not work: this library's own package.json restricts "exports" to its
+ * dist bundles only, no "./package.json" subpath, so Node refuses that
+ * resolution outright (confirmed by hand 16/10/2026 against the installed
+ * 4.3.1 — it throws ERR_PACKAGE_PATH_NOT_EXPORTED). So instead this resolves
+ * the package's real ENTRY point (which IS exported) and walks up from
+ * there until it finds a package.json naming this package — robust to the
+ * exact dist/ layout changing between versions, which the first approach
+ * was not.
+ *
+ * Never throws, and returns `null` — NOT a placeholder string — when the
+ * version cannot be determined. That distinction matters downstream (see
+ * getEmbedderIdentity and rebuildIfStale in search.ts): a transient read
+ * failure (partially restored node_modules, a permissions hiccup, an
+ * antivirus holding the file open) must not be treated as "the identity
+ * changed", or a machine flipping between a real version and a placeholder
+ * would clear and re-embed the whole corpus on every flip — far more
+ * expensive than the problem this guard prevents. `null` lets the caller
+ * abstain instead of guessing.
+ */
+function readInstalledTransformersVersion(): string | null {
+  try {
+    const require = createRequire(import.meta.url);
+    let dir = dirname(require.resolve("@huggingface/transformers"));
+    // Bounded walk, not a loop to the filesystem root: six levels is far
+    // more than node_modules/@huggingface/transformers/dist ever needs, and
+    // a bound means a pathological resolution can't hang this function.
+    for (let i = 0; i < 6; i++) {
+      try {
+        const raw = readFileSync(join(dir, "package.json"), "utf8");
+        const pkg = JSON.parse(raw) as { name?: unknown; version?: unknown };
+        if (pkg.name === "@huggingface/transformers" && typeof pkg.version === "string") {
+          return pkg.version;
+        }
+      } catch {
+        // No package.json at this level, or it didn't parse — keep walking
+        // up; the loop bound below is what prevents this from running away.
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break; // reached the filesystem root
+      dir = parent;
+    }
+  } catch {
+    // require.resolve() itself failed (library missing/renamed on disk) —
+    // fall through to null below rather than throwing.
+  }
+  return null;
+}
+
+/**
+ * The embedder's full identity: the pinned MODEL id (DEFAULT_MODEL_ID,
+ * guarded by ensurePinnedEmbeddingModel above) says WHAT is asked for, but
+ * says nothing about the LIBRARY VERSION that actually turns text into
+ * vectors — a tokenizer or pooling change in @huggingface/transformers
+ * itself would move the stored vectors without the model id ever changing.
+ *
+ * Measured by hand 16/10/2026 for the 4.2.0 -> 4.3.1 bump: max per-dimension
+ * delta was 1.3e-8 (pure float noise — the index stayed valid that time).
+ * Nobody will redo that measurement by hand at the next bump, hence this:
+ * VectorStore.getEmbedderIdentity()/setEmbedderIdentity() record this string
+ * alongside the index, and rebuildIfStale() (search.ts) forces a full
+ * re-embed the moment it changes — including a change on EITHER half, model
+ * or library — instead of a silent, unmeasured drift in search quality.
+ *
+ * Returns `null` when the library version is unverifiable right now (see
+ * readInstalledTransformersVersion). rebuildIfStale treats `null` as "say
+ * nothing" rather than "something changed" — see its own doc comment for
+ * why a guard that can't verify must abstain, not guess.
+ */
+export function getEmbedderIdentity(): string | null {
+  const version = readInstalledTransformersVersion();
+  if (version === null) return null;
+  return `${DEFAULT_MODEL_ID}@${version}`;
 }

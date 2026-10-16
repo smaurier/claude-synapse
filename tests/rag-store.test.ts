@@ -71,6 +71,22 @@ describe("VectorStore", () => {
     expect(store.getFingerprint()).toBe("abc123");
   });
 
+  // backlog #50 (16/10/2026): same meta key/value table as fingerprint, so
+  // no schema migration — a store an older plugin version already created
+  // simply has no "embedderIdentity" row, hence the null default below,
+  // which rebuildIfStale (search.ts) treats as "unknown producer, rebuild".
+  it("persists an embedder identity alongside the vectors, defaulting to null", () => {
+    expect(store.getEmbedderIdentity()).toBeNull();
+    store.setEmbedderIdentity("model@4.3.1");
+    expect(store.getEmbedderIdentity()).toBe("model@4.3.1");
+  });
+
+  it("clear() also resets the embedder identity back to null", () => {
+    store.setEmbedderIdentity("model@4.3.1");
+    store.clear();
+    expect(store.getEmbedderIdentity()).toBeNull();
+  });
+
   it("survives being reopened from the same file (data actually persists to disk)", () => {
     store.upsert("a.md", [1, 0, 0]);
     store.setFingerprint("xyz");
