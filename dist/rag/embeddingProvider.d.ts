@@ -51,3 +51,24 @@ export declare function embedLocal(text: string): Promise<number[]>;
  * two machines pinning at once is harmless.
  */
 export declare function ensurePinnedEmbeddingModel(hubClonePath: string): string;
+/**
+ * The embedder's full identity: the pinned MODEL id (DEFAULT_MODEL_ID,
+ * guarded by ensurePinnedEmbeddingModel above) says WHAT is asked for, but
+ * says nothing about the LIBRARY VERSION that actually turns text into
+ * vectors — a tokenizer or pooling change in @huggingface/transformers
+ * itself would move the stored vectors without the model id ever changing.
+ *
+ * Measured by hand 16/10/2026 for the 4.2.0 -> 4.3.1 bump: max per-dimension
+ * delta was 1.3e-8 (pure float noise — the index stayed valid that time).
+ * Nobody will redo that measurement by hand at the next bump, hence this:
+ * VectorStore.getEmbedderIdentity()/setEmbedderIdentity() record this string
+ * alongside the index, and rebuildIfStale() (search.ts) forces a full
+ * re-embed the moment it changes — including a change on EITHER half, model
+ * or library — instead of a silent, unmeasured drift in search quality.
+ *
+ * Returns `null` when the library version is unverifiable right now (see
+ * readInstalledTransformersVersion). rebuildIfStale treats `null` as "say
+ * nothing" rather than "something changed" — see its own doc comment for
+ * why a guard that can't verify must abstain, not guess.
+ */
+export declare function getEmbedderIdentity(): string | null;

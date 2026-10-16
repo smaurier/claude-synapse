@@ -17,11 +17,11 @@
  * through search.ts directly.
  */
 import { rebuildIfStale, brainSearch } from "./search.js";
-import { chunkFileForEmbedding, embedLocal } from "./embeddingProvider.js";
+import { chunkFileForEmbedding, embedLocal, getEmbedderIdentity } from "./embeddingProvider.js";
 export async function rebuildIndexIfStale(store, corpus) {
-    await rebuildIfStale(store, corpus, embedLocal, chunkFileForEmbedding);
+    await rebuildIfStale(store, corpus, embedLocal, getEmbedderIdentity(), chunkFileForEmbedding);
 }
 export async function synapseSearch(store, corpus, query, topK = 10) {
-    return brainSearch(store, corpus, embedLocal, query, topK, chunkFileForEmbedding);
+    return brainSearch(store, corpus, embedLocal, getEmbedderIdentity(), query, topK, chunkFileForEmbedding);
 }
 //# sourceMappingURL=production.js.map
