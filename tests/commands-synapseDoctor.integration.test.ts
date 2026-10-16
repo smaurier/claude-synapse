@@ -79,4 +79,21 @@ describeWithModel("runSynapseDoctor", () => {
 
     expect(report.projectsRelinked).toEqual([]);
   }, 120_000);
+
+  // Backlog 49 : pluginRoot est le fil qui relie l'audit périodique à
+  // dependencyAudit.ts. Sans lui (les tests ci-dessus, et tout appelant
+  // antérieur à cet item), le check est simplement absent — jamais une
+  // erreur. Avec lui, il tourne vraiment (vrai `npm audit`/`npm outdated`
+  // shellés dans pluginRoot) sans jamais faire planter le rapport, même
+  // quand ce dossier factice n'a ni node_modules ni package-lock.json.
+  it("stays wired to the real dependency check when pluginRoot is given, without ever failing the report", async () => {
+    createLink(hubDir, linkPath);
+    const pluginRoot = join(root, "fake-plugin-root");
+    mkdirSync(pluginRoot, { recursive: true });
+    writeFileSync(join(pluginRoot, "package.json"), JSON.stringify({ name: "fake-plugin", version: "1.0.0" }), "utf8");
+
+    const report = await runSynapseDoctor(pluginDataDir, linkPath, pluginRoot);
+
+    expect(report.findings).toBeInstanceOf(Array);
+  }, 120_000);
 });

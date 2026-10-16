@@ -28,4 +28,4 @@ export interface RefreshIndexResult {
     auditReport?: SynapseDoctorReport;
 }
 export declare function isAuditOverdue(lastAuditAt: string | null, cadenceDays: number): boolean;
-export declare function runRefreshIndex(pluginDataDir: string, projectDir?: string): Promise<RefreshIndexResult>;
+export declare function runRefreshIndex(pluginDataDir: string, projectDir?: string, pluginRoot?: string): Promise<RefreshIndexResult>;

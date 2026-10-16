@@ -17,6 +17,15 @@
  * declenché si le délai est dépassé): /synapse-doctor is what actually
  * performs the audit that mechanism schedules, previously undecided how
  * the timestamp itself would get updated.
+ *
+ * Backlog item 49 (16/10/2026) : contribue aussi les signalements de
+ * `dependencyAudit.ts` (vulnérabilités npm et dépendances obsolètes du
+ * plugin lui-même) — c'est ici que l'audit périodique existant devient
+ * l'endroit naturel où brancher cette vérification, plutôt que d'inventer un
+ * second mécanisme de cadence. `pluginRoot` est optionnel : sans lui (vieux
+ * callers, tests existants), le check est simplement absent du rapport —
+ * jamais une erreur — exactement la posture fail-silent documentée dans
+ * dependencyAudit.ts.
  */
 import { type LinkState } from "../jonction/jonction.js";
 import { type LintFinding, type DuplicateCandidate } from "./brainLint.js";
@@ -33,4 +42,4 @@ export interface SynapseDoctorReport {
      *  16/08) — the device registry, updated on every SessionStart. */
     knownMachines: Record<string, string>;
 }
-export declare function runSynapseDoctor(pluginDataDir: string, linkPath: string): Promise<SynapseDoctorReport>;
+export declare function runSynapseDoctor(pluginDataDir: string, linkPath: string, pluginRoot?: string): Promise<SynapseDoctorReport>;

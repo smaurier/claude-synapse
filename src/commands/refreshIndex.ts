@@ -40,7 +40,7 @@ export function isAuditOverdue(lastAuditAt: string | null, cadenceDays: number):
   return Date.now() - last.getTime() > cadenceDays * 24 * 60 * 60 * 1000;
 }
 
-export async function runRefreshIndex(pluginDataDir: string, projectDir?: string): Promise<RefreshIndexResult> {
+export async function runRefreshIndex(pluginDataDir: string, projectDir?: string, pluginRoot?: string): Promise<RefreshIndexResult> {
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   recordMachineSeen(localConfig.hubClonePath, localConfig.machineId);
   if (projectDir) {
@@ -55,6 +55,10 @@ export async function runRefreshIndex(pluginDataDir: string, projectDir?: string
     return { auditTriggered: false };
   }
 
-  const auditReport = await runSynapseDoctor(pluginDataDir, projectMemoryLinkPath(projectDir));
+  // pluginRoot (backlog 49) : transmis par refreshIndexCli.ts, qui le
+  // calcule déjà pour ensureDependencies() — juste passé plus loin ici pour
+  // que /synapse-doctor puisse brancher dependencyAudit.ts sur son propre
+  // package.json. Optionnel pour ne rien casser d'un appelant qui ne l'a pas.
+  const auditReport = await runSynapseDoctor(pluginDataDir, projectMemoryLinkPath(projectDir), pluginRoot);
   return { auditTriggered: true, auditReport };
 }

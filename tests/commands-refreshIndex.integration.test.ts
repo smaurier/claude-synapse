@@ -72,4 +72,27 @@ describeWithModel("runRefreshIndex", () => {
     expect(result.auditTriggered).toBe(true); // lastAuditAt was never set — overdue by definition
     expect(result.auditReport?.fileCount).toBe(1);
   }, 120_000);
+
+  // Backlog 49 : pluginRoot (calculé par refreshIndexCli.ts via
+  // resolvePluginRoot) doit vraiment traverser runRefreshIndex jusqu'à
+  // /synapse-doctor — sans casser le reste du rapport si ce troisième
+  // paramètre est absent (cas de tous les tests ci-dessus) ou présent.
+  it("threads pluginRoot through to /synapse-doctor without breaking the rest of the report", async () => {
+    writeLocalConfig(join(pluginDataDir, "local-config.json"), {
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      hubClonePath: hubDir,
+      machineId: "test-machine",
+    });
+    writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
+    const projectDir = join(root, "mon-projet");
+    mkdirSync(join(projectDir, ".claude"), { recursive: true });
+    const pluginRoot = join(root, "fake-plugin-root");
+    mkdirSync(pluginRoot, { recursive: true });
+    writeFileSync(join(pluginRoot, "package.json"), JSON.stringify({ name: "fake-plugin", version: "1.0.0" }), "utf8");
+
+    const result = await runRefreshIndex(pluginDataDir, projectDir, pluginRoot);
+
+    expect(result.auditTriggered).toBe(true);
+    expect(result.auditReport?.findings).toBeInstanceOf(Array);
+  }, 120_000);
 });
