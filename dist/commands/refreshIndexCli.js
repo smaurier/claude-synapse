@@ -27,7 +27,8 @@ async function main() {
     // A plain `git clone` install (see dependencies.ts) never runs `npm
     // install` — first real invocation of this hook self-heals it. Cheap
     // no-op check on every session after the first.
-    ensureDependencies(resolvePluginRoot(import.meta.url));
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    ensureDependencies(pluginRoot);
     // Checked explicitly rather than pattern-matching readLocalConfig's error
     // message: a string match would also silently swallow a genuine path
     // resolution bug that happens to produce a similar-looking error, hiding
@@ -36,7 +37,7 @@ async function main() {
         return; // not initialized yet — normal, nothing to refresh
     }
     try {
-        const result = await runRefreshIndex(pluginDataDir, projectDir);
+        const result = await runRefreshIndex(pluginDataDir, projectDir, pluginRoot);
         if (result.auditTriggered && result.auditReport) {
             const r = result.auditReport;
             console.log(`synapse: audit périodique déclenché (cadence dépassée) — ${r.fileCount} fichiers, ${r.findings.length} signalement(s), ${r.duplicateCandidates.length} doublon(s) probable(s).`);

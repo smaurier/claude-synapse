@@ -17,6 +17,20 @@
  * declenché si le délai est dépassé): /synapse-doctor is what actually
  * performs the audit that mechanism schedules, previously undecided how
  * the timestamp itself would get updated.
+ *
+ * Backlog item 49 (16/10/2026) : contribue aussi les signalements de
+ * `dependencyAudit.ts` (vulnérabilités npm et dépendances obsolètes du
+ * plugin lui-même) — c'est ici que l'audit périodique existant devient
+ * l'endroit naturel où brancher cette vérification, plutôt que d'inventer un
+ * second mécanisme de cadence. `pluginRoot` est un paramètre OBLIGATOIRE,
+ * pas optionnel : un garde optionnel est un garde qui pourrit — exactement
+ * la même objection déjà tranchée sur `embedderIdentity` dans
+ * `rebuildIfStale`. Un troisième paramètre optionnel qu'un refactor futur
+ * oublie de passer à un appel fait taire ce check pour toujours, sans
+ * aucun signal — précisément le mode de panne que cet item devait éviter.
+ * `collectDependencyFindings` reste fail-silent sur ses échecs internes
+ * (npm absent, réseau, JSON invalide) ; ce n'est pas la même chose que
+ * rendre sa propre invocation optionnelle ici.
  */
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedConfig, recordMachineSeen, DEFAULT_SHARED_CONFIG } from "../config/config.js";
@@ -25,6 +39,7 @@ import { loadHubCorpus } from "../rag/corpus.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
 import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences, type LintFinding, type DuplicateCandidate } from "./brainLint.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
+import { collectDependencyFindings } from "./dependencyAudit.js";
 import { refreshProjects, type RefreshProjectsResult } from "./refreshProjects.js";
 
 export interface SynapseDoctorReport {
@@ -40,7 +55,7 @@ export interface SynapseDoctorReport {
   knownMachines: Record<string, string>;
 }
 
-export async function runSynapseDoctor(pluginDataDir: string, linkPath: string): Promise<SynapseDoctorReport> {
+export async function runSynapseDoctor(pluginDataDir: string, linkPath: string, pluginRoot: string): Promise<SynapseDoctorReport> {
   const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
   recordMachineSeen(local.hubClonePath, local.machineId);
 
@@ -66,12 +81,14 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string):
   const sharedForRead = readSharedConfig(local.hubClonePath);
   const duplicateCandidates = findDuplicateCandidates(corpus);
   const citedCodeDriftFindings = await checkCitedCodeDrift(corpus, createGitLastCommitDateResolver(local.knownProjectRoots ?? {}));
+  const dependencyFindings = await collectDependencyFindings(pluginRoot);
 
   const findings = [
     ...lintCorpus(corpus),
     ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit),
     ...checkSupersessionReferences(corpus),
     ...citedCodeDriftFindings,
+    ...dependencyFindings,
   ];
 
   // Problème 6 follow-up: re-scan every root /synapse-refresh-projects has

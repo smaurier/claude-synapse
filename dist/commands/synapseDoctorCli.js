@@ -4,6 +4,7 @@
  */
 import { runSynapseDoctor } from "./synapseDoctor.js";
 import { formatDuplicateCandidate } from "./brainLint.js";
+import { resolvePluginRoot } from "../config/dependencies.js";
 async function main() {
     const [pluginDataDir, linkPath] = process.argv.slice(2);
     if (!pluginDataDir || !linkPath) {
@@ -12,7 +13,12 @@ async function main() {
         return;
     }
     try {
-        const report = await runSynapseDoctor(pluginDataDir, linkPath);
+        // Backlog 49 : même calcul que refreshIndexCli.ts — ce module compile
+        // toujours vers <pluginRoot>/dist/commands/synapseDoctorCli.js, donc
+        // resolvePluginRoot(import.meta.url) retrouve le dossier racine du
+        // plugin sans argument CLI supplémentaire.
+        const pluginRoot = resolvePluginRoot(import.meta.url);
+        const report = await runSynapseDoctor(pluginDataDir, linkPath, pluginRoot);
         console.log(`hub: ${report.hubClonePath} (${report.fileCount} fichiers)`);
         console.log(`lien: ${report.linkState}${report.linkAutoFixed ? " (recréé automatiquement, était cassé)" : ""}`);
         const machines = Object.entries(report.knownMachines).sort(([, a], [, b]) => b.localeCompare(a));
