@@ -71,7 +71,16 @@ export class VectorStore {
      *  (code review) missing the fingerprint reset: without it, a caller that
      *  clears the store and then calls rebuildIfStale() on an unchanged
      *  corpus would see the OLD fingerprint still match, skip rebuilding
-     *  entirely, and be left with a silently empty index. */
+     *  entirely, and be left with a silently empty index.
+     *
+     *  Reused 16/10/2026 (backlog #50) as the whole-store invalidation for an
+     *  embedder identity change (see getEmbedderIdentity/setEmbedderIdentity
+     *  above and search.ts's rebuildIfStale): that is EXACTLY the scenario
+     *  this doc comment already describes — clear the store, then rely on
+     *  rebuildIfStale() on a corpus that may be byte-identical to force a
+     *  full re-embed. No second method needed for the same job; the meta
+     *  table wipe here also drops the identity row itself, so the caller
+     *  must call setEmbedderIdentity() again right after clear(). */
     clear() {
         this.db.exec("DELETE FROM vectors");
         this.db.exec("DELETE FROM file_hashes");
@@ -106,6 +115,23 @@ export class VectorStore {
         this.db
             .prepare("INSERT INTO meta (key, value) VALUES ('fingerprint', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .run(fingerprint);
+    }
+    /** Who produced the stored vectors — DEFAULT_MODEL_ID plus the installed
+     *  @huggingface/transformers version (see embeddingProvider.ts's
+     *  getEmbedderIdentity). `null` covers both "never set" (every index built
+     *  before backlog #50, 16/10/2026) and "wiped by clear()" — both cases
+     *  must read as "unknown producer, don't trust these vectors", which is
+     *  exactly how rebuildIfStale() (search.ts) treats a non-match. Same
+     *  meta key/value table as getFingerprint/setFingerprint — no schema
+     *  migration needed for a store an older plugin version already created. */
+    getEmbedderIdentity() {
+        const row = this.db.prepare("SELECT value FROM meta WHERE key = 'embedderIdentity'").get();
+        return row?.value ?? null;
+    }
+    setEmbedderIdentity(id) {
+        this.db
+            .prepare("INSERT INTO meta (key, value) VALUES ('embedderIdentity', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run(id);
     }
     /** Idempotent on purpose: callers (tests, cleanup paths) shouldn't have to
      *  track whether close() was already called. */

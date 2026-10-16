@@ -18,12 +18,12 @@
  */
 
 import { rebuildIfStale, brainSearch } from "./search.js";
-import { chunkFileForEmbedding, embedLocal } from "./embeddingProvider.js";
+import { chunkFileForEmbedding, embedLocal, getEmbedderIdentity } from "./embeddingProvider.js";
 import type { CorpusFile } from "./hash.js";
 import type { SearchResult, VectorStore } from "./store.js";
 
 export async function rebuildIndexIfStale(store: VectorStore, corpus: CorpusFile[]): Promise<void> {
-  await rebuildIfStale(store, corpus, embedLocal, chunkFileForEmbedding);
+  await rebuildIfStale(store, corpus, embedLocal, getEmbedderIdentity(), chunkFileForEmbedding);
 }
 
 export async function synapseSearch(
@@ -32,5 +32,5 @@ export async function synapseSearch(
   query: string,
   topK = 10,
 ): Promise<SearchResult[]> {
-  return brainSearch(store, corpus, embedLocal, query, topK, chunkFileForEmbedding);
+  return brainSearch(store, corpus, embedLocal, getEmbedderIdentity(), query, topK, chunkFileForEmbedding);
 }
