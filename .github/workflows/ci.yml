@@ -69,6 +69,37 @@ jobs:
           SYNAPSE_REQUIRE_GIT_CRYPT: ${{ runner.os == 'Linux' && '1' || '0' }}
 
       - run: npm run build
+
+      # Backlog 46, ajouté le 16/10/2026. `dist/` est volontairement committé
+      # (voir .gitignore) parce que `claude plugin install` est un simple
+      # `git clone` sans étape de build : le code que les utilisateurs
+      # exécutent est le `dist/` du dépôt, pas le `src/`. Or rien ne
+      # vérifiait que les deux correspondent. La CI lançait déjà
+      # `npm run build` juste au-dessus, mais jetait sa sortie sans la
+      # comparer, donc elle restait verte indéfiniment sur un `dist/` périmé.
+      #
+      # Ce n'est pas une précaution théorique : le 15/10, une branche qui
+      # remplaçait toute la détection de doublons a failli être mergée avec
+      # un `dist/` d'avant le chantier. Elle aurait livré l'ancien détecteur
+      # (~145 s, 59 paires) derrière une documentation décrivant le nouveau
+      # (0,9 s, 1 paire). Pas un plantage : une divergence silencieuse entre
+      # ce que le plugin dit et ce qu'il fait.
+      #
+      # --ignore-cr-at-eol est indispensable et non cosmétique : le dépôt est
+      # en CRLF et `tsc` écrit en LF, donc un build neuf marque ~126 fichiers
+      # comme modifiés dont ZÉRO par le contenu. Sans ce drapeau le garde
+      # serait rouge à chaque exécution, donc désactivé dans la semaine.
+      #
+      # `shell: bash` est requis : sur le runner Windows le shell par défaut
+      # est PowerShell, où cette syntaxe de test échouerait.
+      - name: Le dist/ committé correspond au src/ committé
+        shell: bash
+        run: |
+          if ! git diff --exit-code --ignore-cr-at-eol -- dist; then
+            echo "::error::Le dist/ committé ne correspond pas au src/ committé. Lance 'npm run build', puis commite les fichiers dont le CONTENU a changé : git diff --ignore-cr-at-eol --name-only -- dist"
+            exit 1
+          fi
+
       # Backlog 16/08 (étude de marché Synapse) — repeatable replacement
       # for the one-time-only "revue anti-données-perso" done by hand
       # before the first public push (14/08). Needs dist/ (the build step
