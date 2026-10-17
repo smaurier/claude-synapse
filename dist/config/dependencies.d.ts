@@ -12,10 +12,23 @@
  */
 /** The real installer, used everywhere except tests (which inject a fake). */
 export declare function npmInstallProd(pluginRoot: string): void;
-/** Idempotent: a no-op on every session after the first, since node_modules
- *  then already exists — this is NOT re-checked against package.json/
- *  package-lock.json changing (there's no auto-update mechanism for an
- *  already-installed plugin's dependencies yet; out of scope here). */
+/** Marqueur de fin d'installation (backlog 52, 17/10/2026). Vit DANS
+ *  node_modules : un `rm -rf node_modules` à la main l'emporte avec lui, et
+ *  la réinstallation suit naturellement. */
+export declare function dependenciesMarkerPath(pluginRoot: string): string;
+/** Idempotent: a no-op on every session after the first — this is NOT
+ *  re-checked against package.json/package-lock.json changing (there's no
+ *  auto-update mechanism for an already-installed plugin's dependencies yet;
+ *  out of scope here).
+ *
+ *  Backlog 52 (17/10/2026) : le test « node_modules existe » était faux.
+ *  Mesuré sur la tour, le premier `npm install` d'un cache neuf (675 Mo,
+ *  transformers + onnxruntime) a pris plus de 6 min 40 s DANS un hook
+ *  SessionStart de 120 s. Un hook tué au milieu laissait un dossier partiel
+ *  que tous les lancements suivants prenaient pour complet, à jamais. On
+ *  teste donc un marqueur écrit APRÈS le retour de l'installateur : une
+ *  install interrompue est reprise à la session suivante (npm réutilise ce
+ *  qui est déjà extrait), jusqu'à ce qu'elle aboutisse. */
 export declare function ensureDependencies(pluginRoot: string, install?: (root: string) => void): void;
 /** Derives the plugin's root directory from the currently-running compiled
  *  module's own URL — NOT from process.env.CLAUDE_PLUGIN_ROOT, whose
