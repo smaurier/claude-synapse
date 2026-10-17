@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { ensureDependencies, resolvePluginRoot } from "../src/config/dependencies.js";
+import { ensureDependencies, resolvePluginRoot, dependenciesMarkerPath } from "../src/config/dependencies.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
 // Found 24/08 while resuming the jonction work: a plugin installed via
@@ -35,13 +35,55 @@ describe("ensureDependencies", () => {
     expect(install).toHaveBeenCalledWith(root);
   });
 
-  it("does nothing when node_modules already exists — never reinstalls on every session", () => {
+  it("does nothing when the completion marker is present — never reinstalls on every session", () => {
     mkdirSync(join(root, "node_modules"), { recursive: true });
+    writeFileSync(dependenciesMarkerPath(root), "");
     const install = vi.fn();
 
     ensureDependencies(root, install);
 
     expect(install).not.toHaveBeenCalled();
+  });
+
+  // Backlog 52 (17/10/2026) : sur la tour, le premier `npm install` du cache
+  // 0.1.7 (675 Mo) a pris plus de 6 min 40 s DANS un hook SessionStart de
+  // 120 s. Un hook tué au milieu laissait un node_modules partiel que
+  // l'ancien test « le dossier existe » prenait pour complet, à jamais.
+  // Le marqueur n'est écrit qu'APRÈS le retour de l'installateur : une
+  // install interrompue est simplement reprise à la session suivante.
+  it("reinstalls when node_modules exists WITHOUT the completion marker (install killed mid-way)", () => {
+    mkdirSync(join(root, "node_modules", "some-half-extracted-package"), { recursive: true });
+    const install = vi.fn();
+
+    ensureDependencies(root, install);
+
+    expect(install).toHaveBeenCalledWith(root);
+  });
+
+  it("writes the completion marker only after the installer returned", () => {
+    let markerDuringInstall: boolean | null = null;
+    const install = vi.fn((r: string) => {
+      mkdirSync(join(r, "node_modules"), { recursive: true });
+      markerDuringInstall = existsSync(dependenciesMarkerPath(r));
+    });
+
+    ensureDependencies(root, install);
+
+    expect(markerDuringInstall).toBe(false);
+    expect(existsSync(dependenciesMarkerPath(root))).toBe(true);
+  });
+
+  it("leaves no marker behind when the installer throws", () => {
+    const install = vi.fn(() => {
+      throw new Error("npm exploded");
+    });
+
+    expect(() => ensureDependencies(root, install)).toThrow(/npm exploded/);
+    expect(existsSync(dependenciesMarkerPath(root))).toBe(false);
+  });
+
+  it("puts the marker inside node_modules, so wiping node_modules by hand also wipes the marker", () => {
+    expect(dependenciesMarkerPath(root)).toBe(join(root, "node_modules", ".synapse-deps-complete"));
   });
 });
 
