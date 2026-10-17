@@ -146,7 +146,7 @@ export declare function runCommandCapturingStdout(command: string, args: string[
  * masquait un échec à 100 %, pas du tout le "rien à signaler" qu'il
  * prétendait être.
  */
-export declare function resolveNpmBinary(): string;
+export { resolveNpmBinary } from "../config/dependencies.js";
 export interface DependencyAuditRunner {
     runNpmAudit: (cwd: string) => Promise<string>;
     runNpmOutdated: (cwd: string) => Promise<string>;
@@ -164,4 +164,3 @@ export declare const realDependencyAuditRunner: DependencyAuditRunner;
  * session.
  */
 export declare function collectDependencyFindings(pluginRoot: string, runner?: DependencyAuditRunner): Promise<LintFinding[]>;
-export {};

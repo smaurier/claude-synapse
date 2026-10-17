@@ -10,16 +10,51 @@
  * run unattended (SessionStart/PostCompact/SessionEnd) self-heal on first
  * real invocation.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-/** The real installer, used everywhere except tests (which inject a fake). */
-export function npmInstallProd(pluginRoot) {
-    execFileSync("npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], {
+/** Sous Windows le binaire s'appelle `npm.cmd` ; `spawn("npm")` donne
+ *  `ENOENT`. Même règle que pour l'audit des dépendances (dependencyAudit.ts,
+ *  16/10/2026), désormais définie ici et réutilisée là-bas. */
+export function resolveNpmBinary(platform = process.platform) {
+    return platform === "win32" ? "npm.cmd" : "npm";
+}
+/** The real installer, used everywhere except tests (which inject a fake).
+ *
+ *  Backlog 52 (17/10/2026) : `execFileSync("npm", ...)` levait
+ *  `spawnSync npm ENOENT` sous Windows, donc l'auto-réparation n'a JAMAIS
+ *  marché sur un poste Windows ; personne ne l'avait vu parce que le
+ *  gestionnaire de plugins de Claude Code installe node_modules avant tout
+ *  hook. `shell: true` est nécessaire en plus de `npm.cmd` : Node refuse
+ *  d'exécuter un `.cmd` sans shell depuis CVE-2024-27980 (EINVAL). Les
+ *  arguments sont des constantes du code, jamais une entrée utilisateur. */
+export function npmInstallProd(pluginRoot, run = execFileSync) {
+    run(resolveNpmBinary(), ["install", "--omit=dev", "--no-audit", "--no-fund"], {
         cwd: pluginRoot,
         stdio: "inherit",
+        shell: true,
+        windowsHide: true,
     });
+}
+/** Une installation est complète quand chaque dépendance de PRODUCTION de
+ *  package.json a son propre package.json sous node_modules. C'est ce qui
+ *  permet de reconnaître une installation faite par un tiers (le
+ *  gestionnaire de plugins de Claude Code remplit node_modules lui-même,
+ *  dépendances de dev incluses, avant tout hook ; constaté le 17/10/2026)
+ *  sans la relancer, et une installation partielle (hook tué pendant
+ *  l'extraction) sans la croire complète. package.json illisible = on ne
+ *  sait pas = pas complet. */
+export function productionDependenciesPresent(pluginRoot) {
+    let deps;
+    try {
+        const pkg = JSON.parse(readFileSync(join(pluginRoot, "package.json"), "utf8"));
+        deps = pkg.dependencies ?? {};
+    }
+    catch {
+        return false;
+    }
+    return Object.keys(deps).every((name) => existsSync(join(pluginRoot, "node_modules", name, "package.json")));
 }
 /** Marqueur de fin d'installation (backlog 52, 17/10/2026). Vit DANS
  *  node_modules : un `rm -rf node_modules` à la main l'emporte avec lui, et
@@ -43,13 +78,23 @@ export function dependenciesMarkerPath(pluginRoot) {
 export function ensureDependencies(pluginRoot, install = npmInstallProd) {
     if (existsSync(dependenciesMarkerPath(pluginRoot)))
         return;
+    if (productionDependenciesPresent(pluginRoot)) {
+        // Installée par un tiers (gestionnaire de plugins) ou terminée par une
+        // session précédente tuée juste avant d'écrire le marqueur : on le pose,
+        // les sessions suivantes ne relisent plus package.json.
+        writeMarker(pluginRoot);
+        return;
+    }
     if (existsSync(join(pluginRoot, "node_modules"))) {
-        console.error("synapse : installation des dépendances interrompue précédemment, reprise…");
+        console.error("synapse : installation des dépendances incomplète, reprise…");
     }
     else {
         console.error("synapse : première installation des dépendances (plusieurs minutes ; si le hook est interrompu, elle reprend à la prochaine session).");
     }
     install(pluginRoot);
+    writeMarker(pluginRoot);
+}
+function writeMarker(pluginRoot) {
     mkdirSync(join(pluginRoot, "node_modules"), { recursive: true });
     writeFileSync(dependenciesMarkerPath(pluginRoot), new Date().toISOString());
 }

@@ -36,6 +36,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
+import { resolveNpmBinary } from "../config/dependencies.js";
 /** Tous les noms de paquets impliqués par une entrée de vulnérabilité : le
  *  paquet lui-même, ceux dont il hérite (chaînes dans `via`) et ceux qui
  *  héritent de lui (`effects`). Utilisé pour juger si la vulnérabilité « touche
@@ -245,9 +246,7 @@ export function runCommandCapturingStdout(command, args, cwd, timeoutMs = NPM_CO
  * masquait un échec à 100 %, pas du tout le "rien à signaler" qu'il
  * prétendait être.
  */
-export function resolveNpmBinary() {
-    return process.platform === "win32" ? "npm.cmd" : "npm";
-}
+export { resolveNpmBinary } from "../config/dependencies.js";
 function runNpmJson(args, cwd) {
     return runCommandCapturingStdout(resolveNpmBinary(), args, cwd);
 }
