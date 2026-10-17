@@ -79,11 +79,11 @@ export function applySupersession(results, corpus) {
  * the rest of topK, skipping anything already found exactly to avoid
  * showing the same file twice.
  */
-export async function hybridSearchHub(hubClonePath, query, topK = 10) {
+export async function hybridSearchHub(hubClonePath, query, topK = 10, options = {}) {
     const corpus = loadHubCorpus(hubClonePath);
     const exactPaths = findExactMatches(corpus, query);
     const exactSet = new Set(exactPaths);
-    const semanticResults = await searchHub(hubClonePath, query, topK);
+    const semanticResults = await searchHub(hubClonePath, query, topK, options);
     const merged = [
         ...exactPaths.map((path) => ({ path, score: 1, matchType: "exact" })),
         ...semanticResults.filter((r) => !exactSet.has(r.path)).map((r) => ({ ...r, matchType: "semantic" })),

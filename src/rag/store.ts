@@ -49,12 +49,27 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+export interface VectorStoreOptions {
+  /** Temps d'attente (ms) sur un verrou SQLite tenu par un autre processus
+   *  avant de lever « database is locked ». Backlog 51 (16/10/2026) : depuis
+   *  que la reconstruction tourne dans un hook Stop asynchrone, le hook de
+   *  rappel (UserPromptSubmit) peut lire pendant qu'un autre processus écrit.
+   *  Les verrous d'écriture sont courts (un upsert à la fois) : attendre un
+   *  peu suffit, échouer immédiatement dégraderait le rappel en `{}` pour rien. */
+  busyTimeoutMs?: number;
+}
+
+const DEFAULT_BUSY_TIMEOUT_MS = 5000;
+
 export class VectorStore {
   private db: DatabaseSyncInstance;
   private closed = false;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: VectorStoreOptions = {}) {
     this.db = new DatabaseSync(dbPath);
+    // PRAGMA plutôt que l'option `timeout` du constructeur : elle n'existe que
+    // sur les Node récents, le PRAGMA marche sur tout node:sqlite.
+    this.db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.trunc(options.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS))}`);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS vectors (
         path TEXT PRIMARY KEY,

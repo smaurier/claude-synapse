@@ -61,3 +61,23 @@ describeWithModel("refreshHubIndex", () => {
     expect(results[0]?.path).toBe("chat.md");
   }, 120_000);
 });
+
+// Backlog 51 (16/10/2026) : le rappel proactif (hook UserPromptSubmit, 15 s)
+// doit interroger l'index tel quel, jamais le reconstruire — voir
+// search.ts/searchIndex pour la boucle de timeouts que ça corrige.
+describeWithModel("searchHub en lecture seule ({ refreshIndex: false })", () => {
+  it("ignore un fichier ajouté depuis la dernière reconstruction au lieu de l'embedder", async () => {
+    writeFileSync(join(hub, "chat.md"), "Le chat dort sur le canapé toute la journée.", "utf8");
+    await refreshHubIndex(hub);
+
+    writeFileSync(join(hub, "voiture.md"), "La voiture roule vite sur l'autoroute.", "utf8");
+    const results = await searchHub(hub, "un véhicule qui roule sur l'autoroute", 5, { refreshIndex: false });
+
+    expect(results.map((r) => r.path)).not.toContain("voiture.md");
+    expect(results.map((r) => r.path)).toContain("chat.md");
+
+    // La reconstruction suivante (SessionStart / Stop) rattrape le fichier.
+    const after = await searchHub(hub, "un véhicule qui roule sur l'autoroute", 1);
+    expect(after[0]?.path).toBe("voiture.md");
+  }, 120_000);
+});

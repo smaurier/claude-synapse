@@ -20,3 +20,7 @@ import type { CorpusFile } from "./hash.js";
 import type { SearchResult, VectorStore } from "./store.js";
 export declare function rebuildIndexIfStale(store: VectorStore, corpus: CorpusFile[]): Promise<void>;
 export declare function synapseSearch(store: VectorStore, corpus: CorpusFile[], query: string, topK?: number): Promise<SearchResult[]>;
+/** Lecture seule : interroge l'index tel quel, sans reconstruction — pour
+ *  les appelants à budget de temps borné (le hook UserPromptSubmit, 15 s).
+ *  Voir search.ts/searchIndex, backlog 51. */
+export declare function synapseSearchReadOnly(store: VectorStore, corpus: CorpusFile[], query: string, topK?: number): Promise<SearchResult[]>;

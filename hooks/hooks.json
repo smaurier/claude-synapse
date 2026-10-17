@@ -11,6 +11,19 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/commands/refreshIndexCli.js\" \"${CLAUDE_PLUGIN_DATA}\" \"${CLAUDE_PROJECT_DIR}\"",
+            "timeout": 120,
+            "async": true,
+            "statusMessage": "Synapse : reconstruction de l'index en arrière-plan…"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "startup",

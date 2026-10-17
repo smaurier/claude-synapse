@@ -95,14 +95,31 @@ export async function rebuildIfStale(store, corpus, embed, embedderIdentity, chu
  *  source file (keeping each file's best-scoring chunk) — callers care
  *  about "which memory file is relevant", not which internal slice of it
  *  happened to match best. */
-export async function brainSearch(store, corpus, embed, embedderIdentity, query, topK = 10, chunkFn = chunkFile) {
-    await rebuildIfStale(store, corpus, embed, embedderIdentity, chunkFn);
+/** Interroge l'index TEL QU'IL EST, sans jamais le reconstruire — backlog
+ *  51 (16/10/2026). Le hook UserPromptSubmit a un budget de 15 s ; un
+ *  fichier de 274 Ko prenait 44 s à ré-embedder, le hook se faisait tuer
+ *  avant d'avoir stampé le hash du fichier, et repartait de zéro au prompt
+ *  suivant — timeout à CHAQUE prompt, rappel jamais livré. La
+ *  reconstruction appartient au SessionStart (120 s) et au hook Stop
+ *  asynchrone ; ici, un index légèrement périmé est le prix accepté.
+ *
+ *  Deux garde-fous que rebuildIfStale rendait inutiles et que la lecture
+ *  seule doit donc porter elle-même : un fichier disparu du corpus peut
+ *  encore avoir des chunks dans l'index (filtré), et un index construit par
+ *  un autre embedder n'est pas comparable à la requête (on s'abstient —
+ *  même règle du `null` que rebuildIfStale : invérifiable ≠ différent). */
+export async function searchIndex(store, corpus, embed, embedderIdentity, query, topK = 10) {
+    if (embedderIdentity !== null && store.getEmbedderIdentity() !== embedderIdentity)
+        return [];
+    const currentPaths = new Set(corpus.map((f) => f.path));
     // Over-fetch at chunk granularity so that after collapsing to one result
     // per file, we still have up to topK distinct files to return.
     const chunkResults = store.search(await embed(query), topK * 5);
     const bestPerFile = new Map();
     for (const r of chunkResults) {
         const path = sourcePathFromChunkId(r.path);
+        if (!currentPaths.has(path))
+            continue;
         const existing = bestPerFile.get(path);
         if (existing === undefined || r.score > existing.score)
             bestPerFile.set(path, { score: r.score, chunkId: r.path });
@@ -111,5 +128,9 @@ export async function brainSearch(store, corpus, embed, embedderIdentity, query,
         .map(([path, { score, chunkId }]) => ({ path, score, chunkId }))
         .sort((a, b) => b.score - a.score)
         .slice(0, topK);
+}
+export async function brainSearch(store, corpus, embed, embedderIdentity, query, topK = 10, chunkFn = chunkFile) {
+    await rebuildIfStale(store, corpus, embed, embedderIdentity, chunkFn);
+    return searchIndex(store, corpus, embed, embedderIdentity, query, topK);
 }
 //# sourceMappingURL=search.js.map

@@ -17,7 +17,7 @@
  * through search.ts directly.
  */
 
-import { rebuildIfStale, brainSearch } from "./search.js";
+import { rebuildIfStale, brainSearch, searchIndex } from "./search.js";
 import { chunkFileForEmbedding, embedLocal, getEmbedderIdentity } from "./embeddingProvider.js";
 import type { CorpusFile } from "./hash.js";
 import type { SearchResult, VectorStore } from "./store.js";
@@ -33,4 +33,16 @@ export async function synapseSearch(
   topK = 10,
 ): Promise<SearchResult[]> {
   return brainSearch(store, corpus, embedLocal, getEmbedderIdentity(), query, topK, chunkFileForEmbedding);
+}
+
+/** Lecture seule : interroge l'index tel quel, sans reconstruction — pour
+ *  les appelants à budget de temps borné (le hook UserPromptSubmit, 15 s).
+ *  Voir search.ts/searchIndex, backlog 51. */
+export async function synapseSearchReadOnly(
+  store: VectorStore,
+  corpus: CorpusFile[],
+  query: string,
+  topK = 10,
+): Promise<SearchResult[]> {
+  return searchIndex(store, corpus, embedLocal, getEmbedderIdentity(), query, topK);
 }

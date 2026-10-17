@@ -143,7 +143,12 @@ export function filterAndFormatResults(results: HybridResult[]): string | null {
 export async function runProactiveRecall(pluginDataDir: string, prompt: string): Promise<Record<string, string>> {
   if (shouldSkip(prompt)) return {};
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
-  const results = await hybridSearchHub(localConfig.hubClonePath, prompt, MAX_RESULTS * 2);
+  // Lecture seule, jamais de reconstruction ici — backlog 51 (16/10/2026) :
+  // ce hook a 15 s, et ré-embedder un gros fichier modifié (274 Ko = 44 s)
+  // le faisait tuer avant d'avoir stampé le hash, puis repartir de zéro au
+  // prompt suivant. La reconstruction appartient au SessionStart (120 s) et
+  // au hook Stop asynchrone ; un index légèrement périmé est le prix accepté.
+  const results = await hybridSearchHub(localConfig.hubClonePath, prompt, MAX_RESULTS * 2, { refreshIndex: false });
   const corpus = loadHubCorpus(localConfig.hubClonePath);
   const corpusByPath = new Map(corpus.map((f) => [f.path, f.content]));
   // Contradiction warnings are checked against the full raw candidate set,

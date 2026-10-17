@@ -138,3 +138,44 @@ describe("VectorStore — incremental rebuild support", () => {
     expect(store.getFileHashes()).toEqual({});
   });
 });
+
+// Backlog 51 (16/10/2026) : depuis que la reconstruction tourne dans un hook
+// Stop asynchrone, deux processus peuvent toucher index.sqlite en même temps
+// (le Stop qui ré-embedde, le UserPromptSubmit qui lit). Sans busy_timeout,
+// SQLite lève « database is locked » immédiatement au premier chevauchement
+// — le rappel dégraderait en `{}` pour rien. Attendre un peu suffit : les
+// verrous d'écriture sont courts (un upsert à la fois).
+describe("VectorStore — verrou SQLite concurrent", () => {
+  it("attend busyTimeoutMs avant d'abandonner quand un autre processus tient le verrou d'écriture", async () => {
+    // Même contournement que store.ts : l'import statique de node:sqlite fait trébucher Vite.
+    const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
+    const other = new DatabaseSync(dbPath);
+    other.exec("BEGIN IMMEDIATE"); // verrou RESERVED : bloque les écrivains, pas les lecteurs
+    const patient = new VectorStore(dbPath, { busyTimeoutMs: 200 });
+    try {
+      const start = Date.now();
+      expect(() => patient.upsert("a.md", [1, 0, 0])).toThrow(/locked|busy/i);
+      expect(Date.now() - start).toBeGreaterThanOrEqual(150);
+    } finally {
+      patient.close();
+      other.exec("ROLLBACK");
+      other.close();
+    }
+  });
+
+  it("sans option, attend aussi : le défaut n'est pas zéro, sinon le hook de rappel échouerait au premier chevauchement", async () => {
+    const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
+    const other = new DatabaseSync(dbPath);
+    other.exec("BEGIN IMMEDIATE");
+    const patient = new VectorStore(dbPath);
+    try {
+      const start = Date.now();
+      expect(() => patient.upsert("a.md", [1, 0, 0])).toThrow(/locked|busy/i);
+      expect(Date.now() - start).toBeGreaterThanOrEqual(150);
+    } finally {
+      patient.close();
+      other.exec("ROLLBACK");
+      other.close();
+    }
+  });
+});

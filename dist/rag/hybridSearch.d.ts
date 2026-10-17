@@ -24,6 +24,7 @@
  * French words on either side of a match are still treated as "part of a
  * word", not silently ASCII-only.
  */
+import { type SearchHubOptions } from "./searchHub.js";
 export declare function findExactMatches(corpus: {
     path: string;
     content: string;
@@ -73,4 +74,4 @@ export declare function applySupersession(results: HybridResult[], corpus: {
  * the rest of topK, skipping anything already found exactly to avoid
  * showing the same file twice.
  */
-export declare function hybridSearchHub(hubClonePath: string, query: string, topK?: number): Promise<HybridResult[]>;
+export declare function hybridSearchHub(hubClonePath: string, query: string, topK?: number, options?: SearchHubOptions): Promise<HybridResult[]>;
