@@ -37,6 +37,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
+import { resolveNpmBinary } from "../config/dependencies.js";
 import type { LintFinding } from "./brainLint.js";
 
 // --- Formes réelles de `npm audit --json` / `npm outdated --json` ---------
@@ -320,9 +321,7 @@ export function runCommandCapturingStdout(
  * masquait un échec à 100 %, pas du tout le "rien à signaler" qu'il
  * prétendait être.
  */
-export function resolveNpmBinary(): string {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
+export { resolveNpmBinary } from "../config/dependencies.js";
 
 function runNpmJson(args: string[], cwd: string): Promise<string> {
   return runCommandCapturingStdout(resolveNpmBinary(), args, cwd);
