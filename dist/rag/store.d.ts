@@ -23,10 +23,19 @@ export interface SearchResult {
     chunkId?: string;
 }
 export declare function cosineSimilarity(a: number[], b: number[]): number;
+export interface VectorStoreOptions {
+    /** Temps d'attente (ms) sur un verrou SQLite tenu par un autre processus
+     *  avant de lever « database is locked ». Backlog 51 (16/10/2026) : depuis
+     *  que la reconstruction tourne dans un hook Stop asynchrone, le hook de
+     *  rappel (UserPromptSubmit) peut lire pendant qu'un autre processus écrit.
+     *  Les verrous d'écriture sont courts (un upsert à la fois) : attendre un
+     *  peu suffit, échouer immédiatement dégraderait le rappel en `{}` pour rien. */
+    busyTimeoutMs?: number;
+}
 export declare class VectorStore {
     private db;
     private closed;
-    constructor(dbPath: string);
+    constructor(dbPath: string, options?: VectorStoreOptions);
     upsert(path: string, embedding: number[]): void;
     search(queryEmbedding: number[], topK: number): SearchResult[];
     /** Wipes vectors, file hashes, AND the stored fingerprint — found 14/08

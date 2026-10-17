@@ -32,11 +32,15 @@ export function cosineSimilarity(a, b) {
         return 0;
     return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
+const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 export class VectorStore {
     db;
     closed = false;
-    constructor(dbPath) {
+    constructor(dbPath, options = {}) {
         this.db = new DatabaseSync(dbPath);
+        // PRAGMA plutôt que l'option `timeout` du constructeur : elle n'existe que
+        // sur les Node récents, le PRAGMA marche sur tout node:sqlite.
+        this.db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.trunc(options.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS))}`);
         this.db.exec(`
       CREATE TABLE IF NOT EXISTS vectors (
         path TEXT PRIMARY KEY,

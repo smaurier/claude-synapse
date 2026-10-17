@@ -26,7 +26,7 @@
  */
 
 import { loadHubCorpus } from "./corpus.js";
-import { searchHub } from "./searchHub.js";
+import { searchHub, type SearchHubOptions } from "./searchHub.js";
 import { extractFrontmatter } from "../commands/brainLint.js";
 
 function escapeRegExp(s: string): string {
@@ -100,12 +100,17 @@ export function applySupersession(results: HybridResult[], corpus: { path: strin
  * the rest of topK, skipping anything already found exactly to avoid
  * showing the same file twice.
  */
-export async function hybridSearchHub(hubClonePath: string, query: string, topK = 10): Promise<HybridResult[]> {
+export async function hybridSearchHub(
+  hubClonePath: string,
+  query: string,
+  topK = 10,
+  options: SearchHubOptions = {},
+): Promise<HybridResult[]> {
   const corpus = loadHubCorpus(hubClonePath);
   const exactPaths = findExactMatches(corpus, query);
   const exactSet = new Set(exactPaths);
 
-  const semanticResults = await searchHub(hubClonePath, query, topK);
+  const semanticResults = await searchHub(hubClonePath, query, topK, options);
 
   const merged: HybridResult[] = [
     ...exactPaths.map((path): HybridResult => ({ path, score: 1, matchType: "exact" })),

@@ -16,12 +16,18 @@
  * `/brain-search` command, SessionStart refresh) should go through here, not
  * through search.ts directly.
  */
-import { rebuildIfStale, brainSearch } from "./search.js";
+import { rebuildIfStale, brainSearch, searchIndex } from "./search.js";
 import { chunkFileForEmbedding, embedLocal, getEmbedderIdentity } from "./embeddingProvider.js";
 export async function rebuildIndexIfStale(store, corpus) {
     await rebuildIfStale(store, corpus, embedLocal, getEmbedderIdentity(), chunkFileForEmbedding);
 }
 export async function synapseSearch(store, corpus, query, topK = 10) {
     return brainSearch(store, corpus, embedLocal, getEmbedderIdentity(), query, topK, chunkFileForEmbedding);
+}
+/** Lecture seule : interroge l'index tel quel, sans reconstruction — pour
+ *  les appelants à budget de temps borné (le hook UserPromptSubmit, 15 s).
+ *  Voir search.ts/searchIndex, backlog 51. */
+export async function synapseSearchReadOnly(store, corpus, query, topK = 10) {
+    return searchIndex(store, corpus, embedLocal, getEmbedderIdentity(), query, topK);
 }
 //# sourceMappingURL=production.js.map

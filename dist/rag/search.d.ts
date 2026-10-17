@@ -56,4 +56,18 @@ export declare function rebuildIfStale(store: VectorStore, corpus: CorpusFile[],
  *  source file (keeping each file's best-scoring chunk) — callers care
  *  about "which memory file is relevant", not which internal slice of it
  *  happened to match best. */
+/** Interroge l'index TEL QU'IL EST, sans jamais le reconstruire — backlog
+ *  51 (16/10/2026). Le hook UserPromptSubmit a un budget de 15 s ; un
+ *  fichier de 274 Ko prenait 44 s à ré-embedder, le hook se faisait tuer
+ *  avant d'avoir stampé le hash du fichier, et repartait de zéro au prompt
+ *  suivant — timeout à CHAQUE prompt, rappel jamais livré. La
+ *  reconstruction appartient au SessionStart (120 s) et au hook Stop
+ *  asynchrone ; ici, un index légèrement périmé est le prix accepté.
+ *
+ *  Deux garde-fous que rebuildIfStale rendait inutiles et que la lecture
+ *  seule doit donc porter elle-même : un fichier disparu du corpus peut
+ *  encore avoir des chunks dans l'index (filtré), et un index construit par
+ *  un autre embedder n'est pas comparable à la requête (on s'abstient —
+ *  même règle du `null` que rebuildIfStale : invérifiable ≠ différent). */
+export declare function searchIndex(store: VectorStore, corpus: CorpusFile[], embed: EmbeddingProvider, embedderIdentity: string | null, query: string, topK?: number): Promise<SearchResult[]>;
 export declare function brainSearch(store: VectorStore, corpus: CorpusFile[], embed: EmbeddingProvider, embedderIdentity: string | null, query: string, topK?: number, chunkFn?: ChunkFn): Promise<SearchResult[]>;

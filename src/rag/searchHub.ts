@@ -13,7 +13,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadHubCorpus } from "./corpus.js";
-import { synapseSearch, rebuildIndexIfStale } from "./production.js";
+import { synapseSearch, synapseSearchReadOnly, rebuildIndexIfStale } from "./production.js";
 import { ensurePinnedEmbeddingModel } from "./embeddingProvider.js";
 import { VectorStore, type SearchResult } from "./store.js";
 
@@ -23,12 +23,29 @@ function openHubStore(hubClonePath: string): VectorStore {
   return new VectorStore(join(dbDir, "index.sqlite"));
 }
 
-export async function searchHub(hubClonePath: string, query: string, topK = 10): Promise<SearchResult[]> {
+export interface SearchHubOptions {
+  /** `false` : interroger l'index tel quel, sans jamais le reconstruire.
+   *  Réservé aux appelants à budget de temps borné (hook UserPromptSubmit) ;
+   *  la reconstruction reste au SessionStart et au hook Stop asynchrone.
+   *  Backlog 51 (16/10/2026). Défaut `true` : comportement historique de
+   *  /brain-search (reconstruction paresseuse si le corpus a changé). */
+  refreshIndex?: boolean;
+}
+
+export async function searchHub(
+  hubClonePath: string,
+  query: string,
+  topK = 10,
+  options: SearchHubOptions = {},
+): Promise<SearchResult[]> {
+  const refreshIndex = options.refreshIndex ?? true;
   ensurePinnedEmbeddingModel(hubClonePath);
   const store = openHubStore(hubClonePath);
   try {
     const corpus = loadHubCorpus(hubClonePath);
-    return await synapseSearch(store, corpus, query, topK);
+    return refreshIndex
+      ? await synapseSearch(store, corpus, query, topK)
+      : await synapseSearchReadOnly(store, corpus, query, topK);
   } finally {
     store.close();
   }

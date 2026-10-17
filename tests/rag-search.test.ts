@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VectorStore } from "../src/rag/store.js";
-import { brainSearch, rebuildIfStale } from "../src/rag/search.js";
+import { brainSearch, rebuildIfStale, searchIndex } from "../src/rag/search.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
 let root: string;
@@ -258,5 +258,59 @@ describe("rebuildIfStale — embedder identity guard", () => {
 
     expect(embed).not.toHaveBeenCalled(); // abstained — no clear, no re-embed
     expect(store.getEmbedderIdentity()).toBe(FAKE_IDENTITY); // stored identity untouched, not overwritten with null
+  });
+});
+
+// Backlog 51 (16/10/2026) : le hook UserPromptSubmit (15 s) tombait en boucle
+// sur un fichier de 274 Ko — brainSearch ré-embeddait à chaque prompt, se
+// faisait tuer avant d'avoir stampé le hash, et repartait de zéro au prompt
+// suivant. La recherche en lecture seule ne touche JAMAIS au store : un index
+// légèrement périmé vaut mieux qu'un rappel qui n'arrive jamais.
+describe("searchIndex (lecture seule)", () => {
+  it("n'embedde rien du corpus même quand l'index est périmé — seule la requête est embeddée", async () => {
+    const embed = vi.fn(fakeEmbed);
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }], embed, FAKE_IDENTITY);
+    embed.mockClear();
+    const fingerprintBefore = store.getFingerprint();
+
+    const staleCorpus = [
+      { path: "a.md", content: "aaa modifié" },
+      { path: "nouveau.md", content: "bbb" },
+    ];
+    const results = await searchIndex(store, staleCorpus, embed, FAKE_IDENTITY, "aaa", 10);
+
+    expect(embed).toHaveBeenCalledTimes(1); // la requête, rien d'autre
+    expect(embed).toHaveBeenCalledWith("aaa");
+    expect(store.getFingerprint()).toBe(fingerprintBefore); // store intact
+    expect(results.map((r) => r.path)).toEqual(["a.md"]);
+  });
+
+  it("écarte les fichiers encore dans l'index mais disparus du corpus", async () => {
+    const corpus = [
+      { path: "a.md", content: "aaa" },
+      { path: "supprimé.md", content: "aaa" },
+    ];
+    await rebuildIfStale(store, corpus, fakeEmbed, FAKE_IDENTITY);
+
+    const results = await searchIndex(store, [corpus[0]!], fakeEmbed, FAKE_IDENTITY, "aaa", 10);
+
+    expect(results.map((r) => r.path)).toEqual(["a.md"]);
+  });
+
+  it("ne répond rien quand l'index a été construit par un autre embedder — comparer des vecteurs d'espaces différents serait du bruit, pas un rappel", async () => {
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }], fakeEmbed, "autre-modele@0.0.1");
+
+    const results = await searchIndex(store, [{ path: "a.md", content: "aaa" }], fakeEmbed, FAKE_IDENTITY, "aaa", 10);
+
+    expect(results).toEqual([]);
+    expect(store.getEmbedderIdentity()).toBe("autre-modele@0.0.1"); // rien effacé : ce n'est pas son rôle
+  });
+
+  it("une identité invérifiable (null) ne bloque pas la recherche — même abstention que rebuildIfStale", async () => {
+    await rebuildIfStale(store, [{ path: "a.md", content: "aaa" }], fakeEmbed, FAKE_IDENTITY);
+
+    const results = await searchIndex(store, [{ path: "a.md", content: "aaa" }], fakeEmbed, null, "aaa", 10);
+
+    expect(results.map((r) => r.path)).toEqual(["a.md"]);
   });
 });

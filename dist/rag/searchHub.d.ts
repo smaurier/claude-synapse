@@ -10,7 +10,15 @@
  * were a memory file.
  */
 import { type SearchResult } from "./store.js";
-export declare function searchHub(hubClonePath: string, query: string, topK?: number): Promise<SearchResult[]>;
+export interface SearchHubOptions {
+    /** `false` : interroger l'index tel quel, sans jamais le reconstruire.
+     *  Réservé aux appelants à budget de temps borné (hook UserPromptSubmit) ;
+     *  la reconstruction reste au SessionStart et au hook Stop asynchrone.
+     *  Backlog 51 (16/10/2026). Défaut `true` : comportement historique de
+     *  /brain-search (reconstruction paresseuse si le corpus a changé). */
+    refreshIndex?: boolean;
+}
+export declare function searchHub(hubClonePath: string, query: string, topK?: number, options?: SearchHubOptions): Promise<SearchResult[]>;
 /** Rebuilds the hub's index if the corpus changed since last time, without
  *  running a search — what the SessionStart refresh hook calls. Same store
  *  location and staleness rule as searchHub(), just without a query. */
