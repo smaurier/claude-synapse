@@ -23,6 +23,7 @@
 
 import { readLocalConfig, defaultLocalConfigPath } from "../config/config.js";
 import { hybridSearchHub, type HybridResult } from "../rag/hybridSearch.js";
+import { defaultModelCacheDir, useModelCacheDir } from "../rag/embeddingProvider.js";
 import { loadHubCorpus } from "../rag/corpus.js";
 import { chunkFile } from "../rag/chunk.js";
 
@@ -143,6 +144,7 @@ export function filterAndFormatResults(results: HybridResult[]): string | null {
 export async function runProactiveRecall(pluginDataDir: string, prompt: string): Promise<Record<string, string>> {
   if (shouldSkip(prompt)) return {};
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
+  useModelCacheDir(defaultModelCacheDir(pluginDataDir));
   // Lecture seule, jamais de reconstruction ici — backlog 51 (16/10/2026) :
   // ce hook a 15 s, et ré-embedder un gros fichier modifié (274 Ko = 44 s)
   // le faisait tuer avant d'avoir stampé le hash, puis repartir de zéro au

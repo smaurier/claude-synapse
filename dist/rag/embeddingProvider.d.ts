@@ -19,6 +19,25 @@
  */
 import type { Chunk } from "./chunk.js";
 export declare const DEFAULT_MODEL_ID = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
+/**
+ * Backlog 53 (17/10/2026). Par défaut transformers.js range le modèle
+ * téléchargé (130 Mo) dans node_modules/@huggingface/transformers/.cache,
+ * c'est-à-dire DANS le cache de version du plugin. Chaque `claude plugin
+ * update` crée un nouveau dossier de version, donc re-téléchargeait le modèle
+ * au premier rappel proactif : 59 s mesurées, soit un timeout du hook
+ * UserPromptSubmit (15 s) au premier prompt après chaque mise à jour, sur
+ * chaque poste. ${CLAUDE_PLUGIN_DATA} survit aux mises à jour par contrat
+ * (documenté), le modèle y vit désormais, sous models/.
+ *
+ * Même convention que defaultLocalConfigPath : dérivé du pluginDataDir passé
+ * explicitement en argument CLI, jamais lu depuis process.env.
+ */
+export declare function defaultModelCacheDir(pluginDataDir: string): string;
+/** À appeler AVANT le premier chargement du modèle (les promesses ci-dessous
+ *  sont paresseuses, donc avant le premier embedLocal/chunkFileForEmbedding).
+ *  Un test de contrat (tests/modelCache.test.ts) vérifie que chaque module de
+ *  src/commands qui atteint l'embedding fait cet appel. */
+export declare function useModelCacheDir(dir: string): void;
 /** Token-aware chunking backed by the real model's tokenizer — chunk
  *  boundaries are exact, not estimated from a chars-per-token ratio. */
 export declare function chunkFileForEmbedding(path: string, content: string): Promise<Chunk[]>;
