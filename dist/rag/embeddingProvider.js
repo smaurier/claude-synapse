@@ -17,11 +17,11 @@
  * heuristic in chunk.ts — this is the one place with a real tokenizer
  * available, so there is no reason to estimate.
  */
-import { AutoTokenizer, pipeline } from "@huggingface/transformers";
+import { AutoTokenizer, env, pipeline } from "@huggingface/transformers";
 import { chunkFileByTokens } from "./tokenChunk.js";
 import { readSharedConfig, writeSharedConfig } from "../config/config.js";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 export const DEFAULT_MODEL_ID = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const MODEL_ID = DEFAULT_MODEL_ID;
@@ -37,6 +37,30 @@ const MODEL_MAX_TOKENS = 128;
 const SPECIAL_TOKEN_RESERVE = 4;
 const MAX_CONTENT_TOKENS = MODEL_MAX_TOKENS - SPECIAL_TOKEN_RESERVE;
 const OVERLAP_TOKENS = 16;
+/**
+ * Backlog 53 (17/10/2026). Par défaut transformers.js range le modèle
+ * téléchargé (130 Mo) dans node_modules/@huggingface/transformers/.cache,
+ * c'est-à-dire DANS le cache de version du plugin. Chaque `claude plugin
+ * update` crée un nouveau dossier de version, donc re-téléchargeait le modèle
+ * au premier rappel proactif : 59 s mesurées, soit un timeout du hook
+ * UserPromptSubmit (15 s) au premier prompt après chaque mise à jour, sur
+ * chaque poste. ${CLAUDE_PLUGIN_DATA} survit aux mises à jour par contrat
+ * (documenté), le modèle y vit désormais, sous models/.
+ *
+ * Même convention que defaultLocalConfigPath : dérivé du pluginDataDir passé
+ * explicitement en argument CLI, jamais lu depuis process.env.
+ */
+export function defaultModelCacheDir(pluginDataDir) {
+    return join(pluginDataDir, "models");
+}
+/** À appeler AVANT le premier chargement du modèle (les promesses ci-dessous
+ *  sont paresseuses, donc avant le premier embedLocal/chunkFileForEmbedding).
+ *  Un test de contrat (tests/modelCache.test.ts) vérifie que chaque module de
+ *  src/commands qui atteint l'embedding fait cet appel. */
+export function useModelCacheDir(dir) {
+    mkdirSync(dir, { recursive: true });
+    env.cacheDir = dir;
+}
 let tokenizerPromise = null;
 let extractorPromise = null;
 async function getTokenizer() {

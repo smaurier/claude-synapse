@@ -16,9 +16,11 @@
 
 import { readLocalConfig, defaultLocalConfigPath } from "../config/config.js";
 import { hybridSearchHub, type HybridResult } from "../rag/hybridSearch.js";
+import { defaultModelCacheDir, useModelCacheDir } from "../rag/embeddingProvider.js";
 
 export async function runBrainSearch(pluginDataDir: string, query: string, topK = 10): Promise<HybridResult[]> {
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
+  useModelCacheDir(defaultModelCacheDir(pluginDataDir));
   return hybridSearchHub(localConfig.hubClonePath, query, topK);
 }
 

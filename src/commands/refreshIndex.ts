@@ -34,6 +34,7 @@
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, recordMachineSeen } from "../config/config.js";
 import { refreshHubIndex } from "../rag/searchHub.js";
+import { defaultModelCacheDir, useModelCacheDir } from "../rag/embeddingProvider.js";
 import { ensureCurrentProjectLinked, projectMemoryLinkPath } from "./refreshProjects.js";
 import { runSynapseDoctor, type SynapseDoctorReport } from "./synapseDoctor.js";
 
@@ -51,6 +52,7 @@ export function isAuditOverdue(lastAuditAt: string | null, cadenceDays: number):
 
 export async function runRefreshIndex(pluginDataDir: string, projectDir: string | undefined, pluginRoot: string): Promise<RefreshIndexResult> {
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
+  useModelCacheDir(defaultModelCacheDir(pluginDataDir));
   recordMachineSeen(localConfig.hubClonePath, localConfig.machineId);
   if (projectDir) {
     ensureCurrentProjectLinked(projectDir, localConfig.hubClonePath);
