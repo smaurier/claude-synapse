@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmTree } from "./helpers/fsTemp.js";
@@ -240,6 +240,25 @@ describe("runCommandCapturingStdout (le piège du code de sortie non-zéro)", ()
 
   it("still parses stdout when the process exits with a non-zero code — the exact trap of npm audit/outdated", async () => {
     const script = writeScript("console.log(JSON.stringify({ ok: true })); process.exitCode = 1;");
+
+    const stdout = await runCommandCapturingStdout(process.execPath, [script], process.cwd());
+
+    expect(JSON.parse(stdout)).toEqual({ ok: true });
+  });
+
+  // Regression du 29/10/2026. Avec `shell: true`, Node concatene la commande et
+  // les arguments SANS les echapper : un seul blanc dans un chemin suffit, et
+  // cmd.exe repond « 'C:\Program' n'est pas reconnu » avec un stdout VIDE, donc
+  // un echec silencieux. La CI ne pouvait pas le voir : sur windows-latest, Node
+  // vit dans C:\hostedtoolcache (sans espace), alors que l'installation Windows
+  // par defaut est C:\Program Files\nodejs. En mettant l'espace dans le chemin
+  // du SCRIPT plutot que dans celui du binaire, ce test echoue partout, Ubuntu
+  // et CI comprises, donc il garde la regression attrapable.
+  it("survives a space in a path, which shell: true would otherwise split", async () => {
+    const dossierAvecEspaces = join(scriptsDir, "un dossier avec espaces");
+    mkdirSync(dossierAvecEspaces, { recursive: true });
+    const script = join(dossierAvecEspaces, "script.cjs");
+    writeFileSync(script, "console.log(JSON.stringify({ ok: true }));", "utf8");
 
     const stdout = await runCommandCapturingStdout(process.execPath, [script], process.cwd());
 

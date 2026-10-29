@@ -97,41 +97,6 @@ export declare function auditOutdated(outdated: NpmOutdatedReport, productionDep
  *  exécution ou leur parsing a échoué (voir collectDependencyFindings) :
  *  traité comme "rien à en dire", jamais comme une erreur à propager. */
 export declare function auditDependencies(audit: NpmAuditReport | null, outdated: NpmOutdatedReport | null, productionDependencyNames: ReadonlySet<string>): LintFinding[];
-/**
- * Le piège de cette tâche : `npm audit` sort en code non-zéro dès qu'une
- * vulnérabilité existe, et `npm outdated` sort en code non-zéro dès qu'une
- * dépendance est obsolète — c'est le fonctionnement normal et documenté de
- * ces deux commandes, pas un échec. Une implémentation qui traite "code non
- * zéro" comme "échec, ne rien rapporter" ne rapporterait donc jamais rien,
- * silencieusement, pour toujours — le JSON utile est sur stdout quel que soit
- * le code de sortie, donc on l'y lit toujours, sans jamais regarder le code
- * ni laisser une erreur du process (timeout, npm absent, ENOENT) se
- * propager : on résout toujours avec ce que stdout contient (vide en cas
- * d'échec dur), jamais de rejet.
- *
- * `shell: true` est nécessaire, pas seulement pratique — mesuré le
- * 16/10/2026 : sur ce poste (Node 23.7.0), `execFile("npm.cmd", ...)` SANS
- * `shell: true` lève `EINVAL` de façon SYNCHRONE (avant même d'atteindre le
- * callback), parce que Node refuse désormais d'exécuter directement un
- * `.bat`/`.cmd` Windows sans passer par un shell (durcissement de sécurité
- * suite à CVE-2024-27980 — l'exécution directe d'un script batch pouvait
- * laisser cmd.exe réinterpréter les arguments). `resolveNpmBinary()` seul
- * (choisir `npm.cmd`) ne suffit donc pas : il faut les deux. Les arguments
- * passés ici sont toujours des constantes du code, jamais une entrée
- * utilisateur, donc `shell: true` ne rouvre aucune question d'injection —
- * c'est la même conclusion que la préférence initiale pour éviter un shell,
- * juste prouvée fausse par ce test réel sur cette version de Node.
- * Le `try`/`catch` autour de l'appel est une défense en profondeur : le
- * contrat de cette fonction est de ne JAMAIS rejeter, donc même un futur
- * throw synchrone imprévu (autre plateforme, autre version de Node) doit
- * rendre une chaîne vide plutôt que remonter jusqu'à l'appelant.
- *
- * Générique (pas câblée sur "npm") et son timeout en paramètre explicite —
- * exportée pour être testée directement en lançant un vrai sous-processus
- * (`node -e "..."` en lieu et place d'un vrai `npm`), seul moyen de prouver
- * le piège ci-dessus sans dépendre d'un vrai `npm` installé dans
- * l'environnement de test.
- */
 export declare function runCommandCapturingStdout(command: string, args: string[], cwd: string, timeoutMs?: number): Promise<string>;
 /**
  * Mesuré le 16/10/2026 sur ce poste : `execFile("npm", ...)` rend ENOENT

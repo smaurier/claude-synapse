@@ -88,7 +88,7 @@ that version on).
 
 ## Status
 
-Core mechanism built and tested: **413 tests**, real-hub validation (not just fixtures) surfaced
+Core mechanism built and tested: **471 tests**, real-hub validation (not just fixtures) surfaced
 and fixed several real bugs along the way — a lexical fallback for bare-acronym search, word-
 boundary matching to avoid false positives, incremental indexing, and (item 44) two deterministic
 rules for probable duplicates — a slug-stem collision and a verbatim n-gram overlap — replacing a
