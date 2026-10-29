@@ -291,6 +291,22 @@ const NPM_COMMAND_TIMEOUT_MS = 5_000;
  * le piège ci-dessus sans dépendre d'un vrai `npm` installé dans
  * l'environnement de test.
  */
+/**
+ * `shell: true` est indispensable pour atteindre un `.cmd` sous Windows, mais il
+ * concatene la commande et les arguments SANS les echapper : un chemin qui
+ * contient un blanc est coupe au premier espace. Mesure du 29/10/2026 sur un
+ * poste Windows ordinaire, ou Node vit dans `C:\Program Files\nodejs` : cmd.exe
+ * repond « 'C:\Program' n'est pas reconnu » et stdout revient VIDE. Comme cette
+ * fonction resout sur stdout sans regarder l'erreur, l'appelant recoit un
+ * silence qu'il lit comme « rien a signaler » : le meme echec silencieux que le
+ * commentaire de `resolveNpmBinary` plus bas dit avoir corrige, revenu par une
+ * autre porte. La CI ne pouvait pas l'attraper : sur `windows-latest`, Node est
+ * installe dans `C:\hostedtoolcache`, sans espace.
+ */
+function quoteForShell(token: string): string {
+  return /\s/.test(token) && !token.startsWith('"') ? `"${token}"` : token;
+}
+
 export function runCommandCapturingStdout(
   command: string,
   args: string[],
@@ -299,9 +315,16 @@ export function runCommandCapturingStdout(
 ): Promise<string> {
   return new Promise((resolve) => {
     try {
-      execFile(command, args, { cwd, timeout: timeoutMs, windowsHide: true, shell: true }, (_error, stdout) => {
-        resolve(stdout ?? "");
-      });
+      const commandeCitee = quoteForShell(command);
+      const argumentsCites = args.map(quoteForShell);
+      execFile(
+        commandeCitee,
+        argumentsCites,
+        { cwd, timeout: timeoutMs, windowsHide: true, shell: true },
+        (_error, stdout) => {
+          resolve(stdout ?? "");
+        },
+      );
     } catch {
       resolve("");
     }

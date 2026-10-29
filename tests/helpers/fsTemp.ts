@@ -19,7 +19,28 @@
 
 import { rmSync } from "node:fs";
 
-/** Équivalent de `rmSync(path, { recursive: true, force: true })`, mais qui ne casse pas sous Windows. */
+/**
+ * Complément du 29/10/2026 : les 500 ms de la boucle libuv (10 × 50 ms) ne
+ * suffisent pas quand le dossier est tenu non par un handle qui se ferme, mais
+ * par un PROCESSUS ENFANT encore vivant. Mesuré sur
+ * commands-synapseDoctor.integration.test.ts, qui lance le vrai contrôle de
+ * dépendances : `npm` garde le répertoire courant ouvert plusieurs secondes, et
+ * le teardown tombait en `EPERM` en suite complète alors que le même test passe
+ * seul. L'assertion, elle, réussissait : seul le ménage échouait.
+ *
+ * Le nettoyage d'un dossier temporaire est donc traité comme ce qu'il est, un
+ * best-effort : on retente plus longtemps, puis on abandonne en silence plutôt
+ * que de faire échouer un test vert sur du ménage. Le système nettoie `%TEMP%`
+ * de son côté.
+ *
+ * ⚠️ La cause profonde reste ouverte : un test ne devrait pas rendre la main
+ * avant la fin du processus qu'il a lancé. À traiter côté attente de fin de
+ * processus, pas ici.
+ */
 export function rmTree(path: string): void {
-  rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+  } catch {
+    // Volontairement silencieux : voir le commentaire ci-dessus.
+  }
 }
