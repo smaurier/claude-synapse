@@ -140,6 +140,49 @@ function isMajorBump(current, latest) {
     return currentMajor !== latestMajor;
 }
 /**
+ * Backlog item 49 (question laissée ouverte le 16/10, tranchée le 01/11/2026
+ * par Sylvain : « oui, une commande explicite ») — le planificateur PUR du
+ * sous-ensemble que la politique approuvée qualifie déjà de « sûr à
+ * appliquer » (voir classifyVulnerability). Aucune seconde règle : une
+ * vulnérabilité n'entre dans le plan QUE si classifyVulnerability la classe
+ * "safe-to-apply", jamais une logique dupliquée qui pourrait diverger.
+ *
+ * Deux formes de `fixAvailable` à résoudre en une cible (nom, version) :
+ *  - objet `{ name, version, isSemVerMajor }` : la cible EST cette donnée,
+ *    telle quelle — `name` peut différer du paquet vulnérable lui-même (un
+ *    paquet profondément transitif se corrige en montant un paquet racine,
+ *    ex. `tinypool` via `vitest`).
+ *  - `true` (booléen) : npm affirme qu'un correctif existe dans la plage
+ *    déjà déclarée, sans donner de version — ce dépôt épingle des versions
+ *    EXACTES, donc "déjà déclarée" ne laisse aucune marge ; la seule cible
+ *    exploitable est `outdated[name].latest`, seulement si ce paquet
+ *    apparaît dans `npm outdated` ET que ce n'est pas un saut majeur. Sans
+ *    ces deux conditions, aucune cible sûre n'est déductible : ignoré, pas
+ *    deviné.
+ *
+ * Dédupliqué par nom de cible (`Map`) : plusieurs vulnérabilités distinctes
+ * peuvent se résoudre par le même paquet racine, une seule installation
+ * suffit. Trié pour un ordre déterministe, pas celui de `Object.entries`.
+ */
+export function planSafeUpdates(audit, outdated, productionDependencyNames) {
+    const plan = new Map();
+    for (const [name, vuln] of Object.entries(audit.vulnerabilities ?? {})) {
+        if (classifyVulnerability(name, vuln, productionDependencyNames) !== "safe-to-apply")
+            continue;
+        if (typeof vuln.fixAvailable === "object") {
+            plan.set(vuln.fixAvailable.name, vuln.fixAvailable.version);
+            continue;
+        }
+        // fixAvailable === true : pas de version fournie, la seule source possible
+        // est npm outdated, et seulement si ce n'est pas un saut majeur.
+        const entry = outdated[name];
+        if (entry && !isMajorBump(entry.current, entry.latest)) {
+            plan.set(name, entry.latest);
+        }
+    }
+    return [...plan.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, version]) => ({ name, version }));
+}
+/**
  * Les dépendances obsolètes mais pas vulnérables : signal plus faible qu'une
  * vulnérabilité (rien d'exploitable connu), donc délibérément plus discret —
  * une seule ligne, sans la double énumération par population de
@@ -233,7 +276,7 @@ const NPM_COMMAND_TIMEOUT_MS = 5_000;
  * autre porte. La CI ne pouvait pas l'attraper : sur `windows-latest`, Node est
  * installe dans `C:\hostedtoolcache`, sans espace.
  */
-function quoteForShell(token) {
+export function quoteForShell(token) {
     return /\s/.test(token) && !token.startsWith('"') ? `"${token}"` : token;
 }
 export function runCommandCapturingStdout(command, args, cwd, timeoutMs = NPM_COMMAND_TIMEOUT_MS) {
@@ -270,7 +313,7 @@ function runNpmJson(args, cwd) {
 /** `JSON.parse` sur une sortie npm, en silence : stdout vide (npm absent,
  *  timeout, erreur process) ou tronqué/invalide rend `null`, jamais une
  *  exception qui remonterait jusqu'au hook. */
-function parseNpmJsonSafely(raw) {
+export function parseNpmJsonSafely(raw) {
     try {
         return JSON.parse(raw);
     }
@@ -294,7 +337,7 @@ export const realDependencyAuditRunner = {
  * (impossible de garantir qu'on ne traite pas une dépendance de production
  * comme sûre), donc mieux vaut ne rien rapporter que mal classer.
  */
-function readProductionDependencyNames(pluginRoot) {
+export function readProductionDependencyNames(pluginRoot) {
     try {
         const raw = readFileSync(join(pluginRoot, "package.json"), "utf8");
         const pkg = JSON.parse(raw);

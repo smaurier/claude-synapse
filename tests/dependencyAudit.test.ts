@@ -8,6 +8,7 @@ import {
   auditVulnerabilities,
   auditOutdated,
   auditDependencies,
+  planSafeUpdates,
   collectDependencyFindings,
   runCommandCapturingStdout,
   resolveNpmBinary,
@@ -167,6 +168,78 @@ describe("auditVulnerabilities", () => {
     expect(finding!.message).toContain("dev-pkg-major");
     expect(finding!.message).toContain("@huggingface/transformers");
     expect(finding!.message).toContain("production");
+  });
+});
+
+// Item 49, question laissée ouverte (16/10/2026) : « veut-il une commande explicite
+// qui applique le sous-ensemble sûr ? » — tranché le 01/11/2026, « oui ». planSafeUpdates
+// est le planificateur PUR (aucune I/O) : il décide QUOI installer et à QUELLE version,
+// en réutilisant exactement la même classification que auditVulnerabilities, jamais une
+// seconde règle qui pourrait diverger. applySafeUpdatesCli.ts (impur) exécute ce plan.
+describe("planSafeUpdates", () => {
+  it("plans nothing when every vulnerability needs a human decision", () => {
+    expect(planSafeUpdates(REAL_AUDIT_FIXTURE, {}, PROD_DEPS)).toEqual([]);
+  });
+
+  it("plans the exact name/version from an object fixAvailable, which may differ from the vulnerable package's own name", () => {
+    const audit: NpmAuditReport = {
+      vulnerabilities: {
+        tinypool: { severity: "critical", via: [], fixAvailable: { name: "vitest", version: "5.0.5", isSemVerMajor: true } },
+      },
+    };
+    // isSemVerMajor: true => classifyVulnerability rend "refused-major", jamais planifié.
+    expect(planSafeUpdates(audit, {}, PROD_DEPS)).toEqual([]);
+  });
+
+  it("plans a safe (dev-only, non-major) object fixAvailable", () => {
+    const audit: NpmAuditReport = {
+      vulnerabilities: {
+        "dev-pkg-safe": { severity: "low", via: [], fixAvailable: { name: "dev-pkg-safe", version: "1.1.0", isSemVerMajor: false } },
+      },
+    };
+    expect(planSafeUpdates(audit, {}, PROD_DEPS)).toEqual([{ name: "dev-pkg-safe", version: "1.1.0" }]);
+  });
+
+  it("never plans an update that touches a production dependency, even dev-only-looking and non-major", () => {
+    const audit: NpmAuditReport = {
+      vulnerabilities: {
+        "@huggingface/transformers": { severity: "low", via: [], fixAvailable: { name: "@huggingface/transformers", version: "4.3.2", isSemVerMajor: false } },
+      },
+    };
+    expect(planSafeUpdates(audit, {}, PROD_DEPS)).toEqual([]);
+  });
+
+  it("resolves a boolean fixAvailable via npm outdated's 'latest', only when that's not a major bump", () => {
+    const audit: NpmAuditReport = {
+      vulnerabilities: { "dev-pkg-bool": { severity: "moderate", via: [], fixAvailable: true } },
+    };
+    const outdated: NpmOutdatedReport = { "dev-pkg-bool": { current: "1.2.0", wanted: "1.2.0", latest: "1.3.0" } };
+    expect(planSafeUpdates(audit, outdated, PROD_DEPS)).toEqual([{ name: "dev-pkg-bool", version: "1.3.0" }]);
+  });
+
+  it("skips a boolean fixAvailable when npm outdated's latest would be a major bump — no safe target without a human call", () => {
+    const audit: NpmAuditReport = {
+      vulnerabilities: { "dev-pkg-bool": { severity: "moderate", via: [], fixAvailable: true } },
+    };
+    const outdated: NpmOutdatedReport = { "dev-pkg-bool": { current: "1.2.0", wanted: "1.2.0", latest: "2.0.0" } };
+    expect(planSafeUpdates(audit, outdated, PROD_DEPS)).toEqual([]);
+  });
+
+  it("skips a boolean fixAvailable absent from npm outdated — no version to target", () => {
+    const audit: NpmAuditReport = {
+      vulnerabilities: { "dev-pkg-bool": { severity: "moderate", via: [], fixAvailable: true } },
+    };
+    expect(planSafeUpdates(audit, {}, PROD_DEPS)).toEqual([]);
+  });
+
+  it("deduplicates by target package name, sorted, when several vulnerabilities resolve to the same fix", () => {
+    const audit: NpmAuditReport = {
+      vulnerabilities: {
+        "b-pkg": { severity: "low", via: [], fixAvailable: { name: "shared-fix", version: "2.0.0", isSemVerMajor: false } },
+        "a-pkg": { severity: "low", via: [], fixAvailable: { name: "shared-fix", version: "2.0.0", isSemVerMajor: false } },
+      },
+    };
+    expect(planSafeUpdates(audit, {}, PROD_DEPS)).toEqual([{ name: "shared-fix", version: "2.0.0" }]);
   });
 });
 
