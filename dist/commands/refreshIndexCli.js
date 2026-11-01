@@ -42,6 +42,9 @@ async function main() {
             const r = result.auditReport;
             console.log(`synapse: audit périodique déclenché (cadence dépassée) — ${r.fileCount} fichiers, ${r.findings.length} signalement(s), ${r.duplicateCandidates.length} doublon(s) probable(s).`);
         }
+        if (result.ideasRefreshDue) {
+            console.log("synapse: synthèse des idées en retard (cadence dépassée) — invoquer /synapse-ideas-refresh.");
+        }
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);

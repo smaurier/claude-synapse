@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runRefreshIndex } from "../src/commands/refreshIndex.js";
-import { writeLocalConfig, readSharedConfig } from "../src/config/config.js";
+import { writeLocalConfig, readSharedConfig, writeSharedConfig, DEFAULT_SHARED_CONFIG } from "../src/config/config.js";
 import { rmTree } from "./helpers/fsTemp.js";
 import { describeWithModel } from "./helpers/model.js";
 
@@ -49,6 +49,7 @@ describeWithModel("runRefreshIndex", () => {
 
     expect(existsSync(join(hubDir, ".synapse", "index.sqlite"))).toBe(true);
     expect(result.auditTriggered).toBe(false); // no projectDir given — audit needs it for linkPath
+    expect(result.ideasRefreshDue).toBe(true); // lastIdeasRefreshAt was never set — overdue by definition, no projectDir needed
   }, 120_000);
 
   // Ajoute 16/08 : registre des machines (SharedConfig.knownMachines),
@@ -64,6 +65,24 @@ describeWithModel("runRefreshIndex", () => {
     await runRefreshIndex(pluginDataDir, undefined, pluginRootWithoutPackageJson);
 
     expect(readSharedConfig(hubDir).knownMachines).toHaveProperty("workstation-a");
+  }, 120_000);
+
+  // Backlog item 54 (01/11/2026) : deuxième cadence, indépendante de l'audit — ne
+  // doit pas se déclencher tant que lastIdeasRefreshAt est récent, même si l'audit,
+  // lui, est en retard (les deux timestamps sont indépendants).
+  it("does not flag the ideas refresh as due when it was done recently", async () => {
+    writeLocalConfig(join(pluginDataDir, "local-config.json"), {
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      hubClonePath: hubDir,
+      machineId: "test-machine",
+    });
+    mkdirSync(join(hubDir, ".synapse"), { recursive: true });
+    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, lastIdeasRefreshAt: new Date().toISOString() });
+    writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
+
+    const result = await runRefreshIndex(pluginDataDir, undefined, pluginRootWithoutPackageJson);
+
+    expect(result.ideasRefreshDue).toBe(false);
   }, 120_000);
 
   it("triggers /synapse-doctor automatically when the audit cadence is overdue and a projectDir is given", async () => {

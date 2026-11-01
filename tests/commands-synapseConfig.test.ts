@@ -58,6 +58,13 @@ describe("setSynapseConfig", () => {
     expect(updated.wipLimit).toBe(40);
   });
 
+  // Backlog item 54 (01/11/2026) : la cadence bimensuelle demandée par l'utilisateur
+  // n'a pas vocation à rester gravée à 15 — même raison que wipLimit ci-dessus.
+  it("makes ideasRefreshCadenceDays configurable", async () => {
+    const updated = await setSynapseConfig(pluginDataDir, "ideasRefreshCadenceDays", "30");
+    expect(updated.ideasRefreshCadenceDays).toBe(30);
+  });
+
   it("refuses to set a non-editable key", async () => {
     await expect(setSynapseConfig(pluginDataDir, "version", "2")).rejects.toThrow(/non modifiable/);
   });

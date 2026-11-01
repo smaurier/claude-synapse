@@ -19,6 +19,15 @@ export interface SharedConfig {
     lockTimeoutMinutes: number;
     auditCadenceDays: number;
     lastAuditAt: string | null;
+    /** Cadence du rafraîchissement de `reference_toutes_les_idees.md`, demandée par
+     *  l'utilisateur (01/11/2026, backlog item 54) — même mécanisme daemon-less que
+     *  auditCadenceDays/lastAuditAt, mais distinct : contrairement à /synapse-doctor
+     *  (mécanique, aucun appel modèle), recouper les idées contre l'état réel du hub
+     *  demande du jugement, donc un déclenchement différé au `SessionStart` suivant
+     *  (voir isIdeasRefreshOverdue dans refreshIndex.ts) plutôt qu'une exécution dans
+     *  le hook lui-même. */
+    ideasRefreshCadenceDays: number;
+    lastIdeasRefreshAt: string | null;
     /** brain-lint's WIP limiter threshold — found 14/08 hardcoded at 5 with
      *  no way to adjust it: flagged as noise on a real hub with ~40 active
      *  projects, where 5 fires on nearly every run. Configurable per hub

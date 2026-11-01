@@ -21,6 +21,8 @@ export const DEFAULT_SHARED_CONFIG = {
     lockTimeoutMinutes: 10,
     auditCadenceDays: 14,
     lastAuditAt: null,
+    ideasRefreshCadenceDays: 15,
+    lastIdeasRefreshAt: null,
     wipLimit: 5,
     marketWatchExtraSources: [],
     knownMachines: {},
