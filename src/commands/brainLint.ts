@@ -61,6 +61,21 @@ export interface LintFinding {
 export const VALID_TYPES: readonly string[] = Object.freeze(["user", "feedback", "project", "reference"]);
 /** Status alias accepted in place of a date (convention of backlog item 24). */
 const EXPIRES_CLOSED = "closed";
+/** Backlog item 40 (13/10/2026): words a description already uses to announce its
+ *  own closure. Found by reading the real overdue entries on one hub — 9 of 14
+ *  carried one of these. Deliberately a short, editable list rather than a
+ *  clever heuristic: a false negative here just means the fiche keeps its plain
+ *  "overdue" warning, never a wrong auto-action (this only ever proposes). */
+const CLOSURE_MARKERS = ["clos", "close", "stoppe", "pas retenu", "non retenu", "decline", "complet et deploye", "perdu", "resolu", "abandonne"];
+
+/** Accent-insensitive, case-insensitive containment check against CLOSURE_MARKERS. */
+function describesItsOwnClosure(description: string): boolean {
+  const normalized = description
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+  return CLOSURE_MARKERS.some((marker) => normalized.includes(marker));
+}
 const DIVISION_LINE_THRESHOLD = 150;
 const DIVISION_SECTION_THRESHOLD = 4;
 const JOURNAL_DATE_HEADER_THRESHOLD = 4;
@@ -139,6 +154,13 @@ export function lintFile(path: string, content: string, today: Date = new Date()
         findings.push({ path, severity: "warning", message: `\`expires: ${expires}\` illisible — attendu une date ISO, \`ongoing\` ou \`${EXPIRES_CLOSED}\`.` });
       } else if (expiryDate < today) {
         findings.push({ path, severity: "warning", message: `\`expires\` dépassé (${expires}) — à vérifier, pas à supprimer sans confirmation.` });
+        if (fm.fields.description && describesItsOwnClosure(fm.fields.description)) {
+          findings.push({
+            path,
+            severity: "warning",
+            message: `la description annonce déjà sa clôture — proposer \`expires: closed\`, jamais en auto-fix.`,
+          });
+        }
       }
     }
   }
@@ -274,6 +296,98 @@ export function checkSupersessionReferences(files: { path: string; content: stri
   }
 
   return findings;
+}
+
+/** Markdown link target syntax, `[texte](cible)` — used by checkIndexLinks below to
+ *  pull every link out of an index file's body. */
+const MARKDOWN_LINK_RE = /\[[^\]]*\]\(([^)]+)\)/g;
+
+/**
+ * Backlog item 38 (13/10/2026): nothing verified the index's own links, nor the
+ * reverse — a fiche silently absent from every index. Measured by hand that day:
+ * 187 links cited, 0 broken, 1 orphan — a clean result, but guaranteed by nothing;
+ * the next fiche created without an index line would never be caught. Two
+ * findings, scoped deliberately to the index's markdown links only (not every
+ * `[[wikilink]]` in every fiche's body, a much noisier and differently-scoped
+ * question): a link cited with no matching file, and a real fiche cited by no
+ * index file at all.
+ */
+export function checkIndexLinks(files: { path: string; content: string }[]): LintFinding[] {
+  const findings: LintFinding[] = [];
+  const indexFiles = files.filter((f) => isIndexFile(f.path));
+  const byBasename = new Set(files.map((f) => f.path.split("/").pop() ?? f.path));
+  const linkedBasenames = new Set<string>();
+
+  for (const index of indexFiles) {
+    for (const match of index.content.matchAll(MARKDOWN_LINK_RE)) {
+      const target = match[1];
+      if (!target || /^[a-z]+:\/\//i.test(target)) continue; // external link, not a corpus file
+      const basename = target.split("/").pop() ?? target;
+      if (!basename.toLowerCase().endsWith(".md")) continue;
+      linkedBasenames.add(basename);
+      if (!byBasename.has(basename)) {
+        findings.push({
+          path: index.path,
+          severity: "warning",
+          message: `lien vers \`${basename}\` — aucun fichier de ce nom dans le corpus (renommage/typo probable).`,
+        });
+      }
+    }
+  }
+
+  for (const f of files) {
+    if (isIndexFile(f.path)) continue;
+    if (!extractFrontmatter(f.content)) continue; // not a real fiche by convention, see lintFile
+    const basename = f.path.split("/").pop() ?? f.path;
+    if (!linkedBasenames.has(basename)) {
+      findings.push({
+        path: f.path,
+        severity: "warning",
+        message: "aucune ligne d'index ne pointe vers cette fiche — orpheline, invisible depuis MEMORY.md.",
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Backlog item 36 (13/10/2026): `MEMORY.md` is the one file paid at EVERY
+ * `SessionStart`, regardless of topic — and nothing measured its weight or
+ * how it breaks down by section. Scoped deliberately to `MEMORY.md` itself,
+ * not the `MEMORY-*.md` sub-indexes (those are loaded on demand by the hub's
+ * own convention, not paid on every session — item 37 already draws this
+ * same line between "the index" and "a memory"). `indexMaxBytes` is the one
+ * configurable threshold, same pattern as `wipLimit`: it gates the whole
+ * finding, and once past it the message lists every `##` section by weight,
+ * heaviest first, so the next person reading the report knows exactly where
+ * the bytes are going rather than just that there are too many of them.
+ */
+export function checkIndexWeight(files: { path: string; content: string }[], indexMaxBytes: number): LintFinding[] {
+  const index = files.find((f) => (f.path.split("/").pop() ?? f.path) === "MEMORY.md");
+  if (!index) return [];
+
+  const totalBytes = Buffer.byteLength(index.content, "utf8");
+  if (totalBytes <= indexMaxBytes) return [];
+
+  const headingPositions = [...index.content.matchAll(/^##\s+(.+)$/gm)].map((m) => ({ heading: m[1]!.trim(), start: m.index! }));
+  const sections = headingPositions.map((h, i) => {
+    const end = i + 1 < headingPositions.length ? headingPositions[i + 1]!.start : index.content.length;
+    return { heading: h.heading, bytes: Buffer.byteLength(index.content.slice(h.start, end), "utf8") };
+  });
+  sections.sort((a, b) => b.bytes - a.bytes);
+
+  const breakdown = sections.map((s) => `${s.heading} (${s.bytes} o)`).join(", ");
+
+  return [
+    {
+      path: index.path,
+      severity: "warning",
+      message:
+        `${totalBytes} octets, au-dessus du seuil configuré (${indexMaxBytes}) — payé à chaque SessionStart.` +
+        (breakdown ? ` Par section, la plus lourde en tête : ${breakdown}.` : ""),
+    },
+  ];
 }
 
 /** Les préfixes de nom de fichier de la règle de collision de slug : les mêmes

@@ -71,6 +71,36 @@ export declare function checkSupersessionReferences(files: {
     content: string;
 }[]): LintFinding[];
 /**
+ * Backlog item 38 (13/10/2026): nothing verified the index's own links, nor the
+ * reverse — a fiche silently absent from every index. Measured by hand that day:
+ * 187 links cited, 0 broken, 1 orphan — a clean result, but guaranteed by nothing;
+ * the next fiche created without an index line would never be caught. Two
+ * findings, scoped deliberately to the index's markdown links only (not every
+ * `[[wikilink]]` in every fiche's body, a much noisier and differently-scoped
+ * question): a link cited with no matching file, and a real fiche cited by no
+ * index file at all.
+ */
+export declare function checkIndexLinks(files: {
+    path: string;
+    content: string;
+}[]): LintFinding[];
+/**
+ * Backlog item 36 (13/10/2026): `MEMORY.md` is the one file paid at EVERY
+ * `SessionStart`, regardless of topic — and nothing measured its weight or
+ * how it breaks down by section. Scoped deliberately to `MEMORY.md` itself,
+ * not the `MEMORY-*.md` sub-indexes (those are loaded on demand by the hub's
+ * own convention, not paid on every session — item 37 already draws this
+ * same line between "the index" and "a memory"). `indexMaxBytes` is the one
+ * configurable threshold, same pattern as `wipLimit`: it gates the whole
+ * finding, and once past it the message lists every `##` section by weight,
+ * heaviest first, so the next person reading the report knows exactly where
+ * the bytes are going rather than just that there are too many of them.
+ */
+export declare function checkIndexWeight(files: {
+    path: string;
+    content: string;
+}[], indexMaxBytes: number): LintFinding[];
+/**
  * Décision délibérée (item 44) : les primitives ci-dessous (`slugStem`,
  * `findSlugCollisions`, `comparableWords`, `shingles`, `containment`,
  * `findVerbatimOverlaps`) sont exportées bien que seules `findDuplicateCandidates`

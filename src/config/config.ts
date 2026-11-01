@@ -70,6 +70,12 @@ export interface SharedConfig {
    *  subset, or the corpus fingerprint two machines compute for the "did
    *  anything change" staleness check would drift between them. */
   corpusRoot: string;
+  /** Backlog item 36 (13/10/2026): threshold `checkIndexWeight` (brainLint.ts) gates
+   *  on — `MEMORY.md`'s total byte size, the one file paid at every SessionStart
+   *  regardless of topic. Same configurable-threshold pattern as `wipLimit`: a
+   *  default that's reasonable on an empty hub, raised or lowered per hub via
+   *  `/synapse-config set` rather than guessed once and hardcoded. */
+  indexMaxBytes: number;
 }
 
 export const DEFAULT_SHARED_CONFIG: SharedConfig = {
@@ -86,6 +92,7 @@ export const DEFAULT_SHARED_CONFIG: SharedConfig = {
   knownMachines: {},
   refreshProjectsRoots: [],
   corpusRoot: ".",
+  indexMaxBytes: 20_000,
 };
 
 function sharedConfigPath(hubDir: string): string {

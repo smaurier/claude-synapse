@@ -65,6 +65,13 @@ describe("setSynapseConfig", () => {
     expect(updated.ideasRefreshCadenceDays).toBe(30);
   });
 
+  // Backlog item 36 (13/10/2026) : même raison que wipLimit — un hub plus gros ou
+  // plus petit que celui où le défaut a été choisi doit pouvoir ajuster le seuil.
+  it("makes indexMaxBytes configurable", async () => {
+    const updated = await setSynapseConfig(pluginDataDir, "indexMaxBytes", "30000");
+    expect(updated.indexMaxBytes).toBe(30000);
+  });
+
   it("refuses to set a non-editable key", async () => {
     await expect(setSynapseConfig(pluginDataDir, "version", "2")).rejects.toThrow(/non modifiable/);
   });

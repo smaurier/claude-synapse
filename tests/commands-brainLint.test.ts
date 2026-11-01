@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractFrontmatter, lintFile, lintCorpus, checkWipLimit, checkSupersessionReferences, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, containment, findDuplicateCandidates, formatDuplicateCandidate, VALID_TYPES } from "../src/commands/brainLint.js";
+import { extractFrontmatter, lintFile, lintCorpus, checkWipLimit, checkSupersessionReferences, checkIndexLinks, checkIndexWeight, slugStem, findSlugCollisions, comparableWords, findVerbatimOverlaps, shingles, containment, findDuplicateCandidates, formatDuplicateCandidate, VALID_TYPES } from "../src/commands/brainLint.js";
 
 const VALID_REFERENCE = `---
 name: exemple
@@ -172,6 +172,47 @@ metadata:
     expect(findings).toEqual([]);
   });
 
+  // Backlog item 40 (13/10/2026) : 9 des 14 `expires` dépassés trouvés ce jour-là
+  // portaient déjà leur verdict dans leur propre `description` (CLOS, STOPPÉE, PAS
+  // RETENU, DÉCLINÉ, COMPLET ET DÉPLOYÉ, PERDU, RÉSOLU...). Une règle lexicale les
+  // détecte et propose `expires: closed` — en PROPOSITION seulement, jamais en
+  // auto-fix (doctrine du skill, item 49).
+  describe("overdue expires with a closure marker already in the description", () => {
+    function overdueWithDescription(description: string): string {
+      return `---\nname: x\ndescription: "${description}"\nmetadata:\n  type: project\n  created: 2026-01-01\n  expires: 2026-01-15\n---\n`;
+    }
+
+    it("proposes expires: closed when the description already says CLOS", () => {
+      const findings = lintFile("x.md", overdueWithDescription("Dossier Alstom — CLOS le 16/09/2026"), new Date("2026-08-14"));
+      const proposal = findings.find((f) => f.message.includes("expires: closed"));
+      expect(proposal).toBeDefined();
+      expect(proposal?.severity).toBe("warning");
+    });
+
+    it.each(["STOPPÉE", "PAS RETENU", "DÉCLINÉ", "COMPLET ET DÉPLOYÉ", "PERDU", "RÉSOLU", "ABANDONNÉE"])(
+      "recognizes the marker %s",
+      (marker) => {
+        const findings = lintFile("x.md", overdueWithDescription(`Projet — ${marker} le 01/01/2026`), new Date("2026-08-14"));
+        expect(findings.some((f) => f.message.includes("expires: closed"))).toBe(true);
+      },
+    );
+
+    it("is case-insensitive and accent-insensitive", () => {
+      const findings = lintFile("x.md", overdueWithDescription("resolu le 01/01/2026"), new Date("2026-08-14"));
+      expect(findings.some((f) => f.message.includes("expires: closed"))).toBe(true);
+    });
+
+    it("does not propose it when the description has no closure marker", () => {
+      const findings = lintFile("x.md", overdueWithDescription("Projet toujours en cours, rien de tranché"), new Date("2026-08-14"));
+      expect(findings.some((f) => f.message.includes("expires: closed"))).toBe(false);
+    });
+
+    it("does not propose it when expires is not actually overdue", () => {
+      const findings = lintFile("x.md", overdueWithDescription("CLOS le 16/09/2026"), new Date("2026-01-01"));
+      expect(findings.some((f) => f.message.includes("expires: closed"))).toBe(false);
+    });
+  });
+
   it("does not flag expires: ongoing as expired", () => {
     const findings = lintFile("x.md", VALID_PROJECT.replace("2026-12-31", "ongoing"), new Date("2030-01-01"));
     expect(findings).toEqual([]);
@@ -278,6 +319,71 @@ describe("checkSupersessionReferences", () => {
   });
 });
 
+// Backlog item 38 (13/10/2026) : rien ne vérifiait les liens markdown de
+// `MEMORY.md`/`MEMORY-*.md` vers les fiches, ni l'absence d'une fiche dans l'index.
+// Mesuré à la main ce jour-là : 187 liens cités, 0 cassé, 1 orpheline — bon résultat,
+// mais garanti par rien. Deux signaux distincts : lien cité sans fichier, fichier
+// sans ligne d'index.
+describe("checkIndexLinks", () => {
+  it("flags a link in the index pointing to a file absent from the corpus", () => {
+    const files = [
+      { path: "MEMORY.md", content: "# Index\n\n- [Un truc](fantome.md)\n" },
+    ];
+    const findings = checkIndexLinks(files);
+    expect(findings).toEqual([
+      expect.objectContaining({ path: "MEMORY.md", severity: "warning" }),
+    ]);
+    expect(findings[0]?.message).toContain("fantome.md");
+  });
+
+  it("does not flag a link pointing to a real corpus file", () => {
+    const files = [
+      { path: "MEMORY.md", content: "# Index\n\n- [Une fiche](a.md)\n" },
+      { path: "a.md", content: VALID_REFERENCE },
+    ];
+    expect(checkIndexLinks(files)).toEqual([]);
+  });
+
+  it("flags a non-index file never linked from any index", () => {
+    const files = [
+      { path: "MEMORY.md", content: "# Index\n\n- [Une fiche](a.md)\n" },
+      { path: "a.md", content: VALID_REFERENCE },
+      { path: "orpheline.md", content: VALID_REFERENCE },
+    ];
+    const findings = checkIndexLinks(files);
+    expect(findings).toEqual([
+      expect.objectContaining({ path: "orpheline.md", severity: "warning" }),
+    ]);
+    expect(findings[0]?.message).toContain("aucune ligne d'index");
+  });
+
+  it("checks links across every index file, not just MEMORY.md", () => {
+    const files = [
+      { path: "MEMORY.md", content: "# Index\n\nSous-index : [dormant](MEMORY-dormant.md)\n" },
+      { path: "MEMORY-dormant.md", content: "- [Une fiche](a.md)\n" },
+      { path: "a.md", content: VALID_REFERENCE },
+    ];
+    expect(checkIndexLinks(files)).toEqual([]);
+  });
+
+  it("ignores external links (http/https) when checking for broken targets", () => {
+    const files = [
+      { path: "MEMORY.md", content: "# Index\n\n- [Externe](https://example.com/page.md)\n" },
+    ];
+    expect(checkIndexLinks(files)).toEqual([]);
+  });
+
+  it("ignores a memory file with no frontmatter type at all (not a real memory, e.g. a stray doc)", () => {
+    // Un fichier sans frontmatter n'est de toute façon pas une vraie fiche —
+    // `lintFile` le signale déjà en erreur ailleurs ; checkIndexLinks ne double pas ce signal.
+    const files = [
+      { path: "MEMORY.md", content: "# Index\n" },
+      { path: "README.md", content: "juste un fichier markdown sans frontmatter" },
+    ];
+    expect(checkIndexLinks(files)).toEqual([]);
+  });
+});
+
 describe("findSlugCollisions", () => {
   it("apparie deux fiches de types différents au même radical", () => {
     const pairs = findSlugCollisions(["project_un_sujet.md", "reference_un_sujet.md"]);
@@ -306,6 +412,50 @@ describe("findSlugCollisions", () => {
 
   it("n'apparie pas un fichier avec lui-même en cas de doublure dans l'entrée", () => {
     expect(findSlugCollisions(["project_x.md", "project_x.md"])).toEqual([]);
+  });
+});
+
+// Backlog item 36 (13/10/2026) : `MEMORY.md` est le seul fichier payé à CHAQUE
+// `SessionStart`, quel que soit le sujet — et rien ne mesurait son poids ni sa
+// répartition par section. Mesuré à la main ce jour sur un vrai hub : Feedback
+// (4296 o) en tête, loin devant les autres sections.
+describe("checkIndexWeight", () => {
+  function section(heading: string, byteCount: number): string {
+    return `## ${heading}\n${"x".repeat(Math.max(0, byteCount - heading.length - 4))}\n`;
+  }
+
+  it("does not flag MEMORY.md when it stays under the threshold", () => {
+    const files = [{ path: "MEMORY.md", content: `# Index\n\n${section("Feedback", 100)}` }];
+    expect(checkIndexWeight(files, 1000)).toEqual([]);
+  });
+
+  it("flags MEMORY.md and names the heaviest section first once over the threshold", () => {
+    const files = [
+      {
+        path: "MEMORY.md",
+        content: `# Index\n\n${section("Garde-fous", 200)}${section("Feedback", 4296)}${section("En cours", 2352)}`,
+      },
+    ];
+    const findings = checkIndexWeight(files, 1000);
+    expect(findings).toEqual([expect.objectContaining({ path: "MEMORY.md", severity: "warning" })]);
+    const feedbackPos = findings[0]!.message.indexOf("Feedback");
+    const enCoursPos = findings[0]!.message.indexOf("En cours");
+    const gardeFousPos = findings[0]!.message.indexOf("Garde-fous");
+    expect(feedbackPos).toBeGreaterThanOrEqual(0);
+    expect(feedbackPos).toBeLessThan(enCoursPos);
+    expect(enCoursPos).toBeLessThan(gardeFousPos);
+  });
+
+  it("only ever looks at MEMORY.md itself, not the sub-indexes loaded on demand", () => {
+    const files = [
+      { path: "MEMORY.md", content: "# Index\n\nminuscule\n" },
+      { path: "MEMORY-dormant.md", content: `# Dormant\n\n${section("Gros", 5000)}` },
+    ];
+    expect(checkIndexWeight(files, 1000)).toEqual([]);
+  });
+
+  it("is a no-op when the corpus has no MEMORY.md at all", () => {
+    expect(checkIndexWeight([{ path: "a.md", content: VALID_REFERENCE }], 1000)).toEqual([]);
   });
 });
 

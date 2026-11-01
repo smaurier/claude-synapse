@@ -6,7 +6,7 @@
  */
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
 import { loadHubCorpus } from "../rag/corpus.js";
-import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences } from "./brainLint.js";
+import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences, checkIndexLinks, checkIndexWeight } from "./brainLint.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 export async function runBrainLint(pluginDataDir) {
     const local = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
@@ -18,6 +18,8 @@ export async function runBrainLint(pluginDataDir) {
         ...lintCorpus(corpus),
         ...checkWipLimit(corpus, new Date(), shared.wipLimit),
         ...checkSupersessionReferences(corpus),
+        ...checkIndexLinks(corpus),
+        ...checkIndexWeight(corpus, shared.indexMaxBytes),
         ...citedCodeDriftFindings,
     ];
     return { findings, duplicateCandidates };

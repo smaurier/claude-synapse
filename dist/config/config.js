@@ -28,6 +28,7 @@ export const DEFAULT_SHARED_CONFIG = {
     knownMachines: {},
     refreshProjectsRoots: [],
     corpusRoot: ".",
+    indexMaxBytes: 20_000,
 };
 function sharedConfigPath(hubDir) {
     return join(hubDir, ".synapse", "config.json");

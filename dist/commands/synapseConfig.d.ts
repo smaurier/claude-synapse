@@ -13,10 +13,10 @@
  * numeric one the other keys use.
  */
 import { type SharedConfig } from "../config/config.js";
-export declare const NUMERIC_EDITABLE_KEYS: readonly ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit", "ideasRefreshCadenceDays"];
+export declare const NUMERIC_EDITABLE_KEYS: readonly ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit", "ideasRefreshCadenceDays", "indexMaxBytes"];
 export type NumericEditableKey = (typeof NUMERIC_EDITABLE_KEYS)[number];
 export declare const STRING_LIST_EDITABLE_KEYS: readonly ["refreshProjectsExclusions", "marketWatchExtraSources", "refreshProjectsRoots"];
-export declare const EDITABLE_KEYS: readonly ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit", "ideasRefreshCadenceDays", "refreshProjectsExclusions", "marketWatchExtraSources", "refreshProjectsRoots"];
+export declare const EDITABLE_KEYS: readonly ["lockTimeoutMinutes", "auditCadenceDays", "wipLimit", "ideasRefreshCadenceDays", "indexMaxBytes", "refreshProjectsExclusions", "marketWatchExtraSources", "refreshProjectsRoots"];
 export declare function showSynapseConfig(pluginDataDir: string): Promise<SharedConfig>;
 export declare function setSynapseConfig(pluginDataDir: string, key: string, rawValue: string): Promise<SharedConfig>;
 /**

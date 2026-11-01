@@ -36,7 +36,7 @@ import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedC
 import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadHubCorpus } from "../rag/corpus.js";
 import { inspectLink, createLink, removeLink } from "../jonction/jonction.js";
-import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences } from "./brainLint.js";
+import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences, checkIndexLinks, checkIndexWeight, formatDuplicateCandidate } from "./brainLint.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 import { collectDependencyFindings } from "./dependencyAudit.js";
 import { refreshProjects } from "./refreshProjects.js";
@@ -69,6 +69,8 @@ export async function runSynapseDoctor(pluginDataDir, linkPath, pluginRoot) {
         ...lintCorpus(corpus),
         ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit),
         ...checkSupersessionReferences(corpus),
+        ...checkIndexLinks(corpus),
+        ...checkIndexWeight(corpus, sharedForRead.indexMaxBytes),
         ...citedCodeDriftFindings,
         ...dependencyFindings,
     ];
@@ -100,6 +102,43 @@ export async function runSynapseDoctor(pluginDataDir, linkPath, pluginRoot) {
         duplicateCandidates,
         projectsRelinked,
         knownMachines: sharedForRead.knownMachines,
+        ragEmbeddingModelVersion: sharedForRead.ragEmbeddingModelVersion,
     };
+}
+/**
+ * Pure formatting, separated from synapseDoctorCli.ts's main() for the same reason
+ * formatDuplicateCandidate was pulled out of it (item 44): main() runs `void main()`
+ * at module load, so nothing inside it can be imported into a test without actually
+ * executing a CLI invocation. Backlog item 48 (15/10/2026) found exactly one line —
+ * "aucun doublon détecté" — the spec had explicitly asked to test and never did,
+ * because of this same problem; pulling the whole report format out fixes it for
+ * every line at once, not just that one.
+ */
+export function formatDoctorReport(report) {
+    const lines = [];
+    lines.push(`hub: ${report.hubClonePath} (${report.fileCount} fichiers)`);
+    lines.push(`lien: ${report.linkState}${report.linkAutoFixed ? " (recréé automatiquement, était cassé)" : ""}`);
+    lines.push(`modèle d'embedding épinglé : ${report.ragEmbeddingModelVersion}`);
+    const machines = Object.entries(report.knownMachines).sort(([, a], [, b]) => b.localeCompare(a));
+    if (machines.length > 0) {
+        lines.push(`machines connues (${machines.length}) :`);
+        for (const [machineId, lastSeenAt] of machines)
+            lines.push(`  ${machineId} — vu la dernière fois : ${lastSeenAt}`);
+    }
+    if (report.projectsRelinked.length > 0) {
+        lines.push(`projets (re)liés depuis les racines mémorisées : ${report.projectsRelinked.length}`);
+        for (const p of report.projectsRelinked)
+            lines.push(`  ${p.projectDir} — ${p.link.action}`);
+    }
+    if (report.findings.length === 0 && report.duplicateCandidates.length === 0) {
+        lines.push("brain-lint: rien à signaler, aucun doublon détecté.");
+    }
+    else {
+        for (const f of report.findings)
+            lines.push(`[${f.severity}] ${f.path} — ${f.message}`);
+        for (const c of report.duplicateCandidates)
+            lines.push(formatDuplicateCandidate(c));
+    }
+    return lines;
 }
 //# sourceMappingURL=synapseDoctor.js.map
