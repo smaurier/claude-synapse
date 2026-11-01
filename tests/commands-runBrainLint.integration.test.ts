@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBrainLint } from "../src/commands/runBrainLint.js";
-import { comparableWords, shingles, containment } from "../src/commands/brainLint.js";
+import { comparableWords, shingles, containment } from "../src/commands/duplicateDetection.js";
 import { writeLocalConfig } from "../src/config/config.js";
 import { rmTree } from "./helpers/fsTemp.js";
 

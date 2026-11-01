@@ -33,7 +33,8 @@
  * rendre sa propre invocation optionnelle ici.
  */
 import { type LinkState } from "../jonction/jonction.js";
-import { type LintFinding, type DuplicateCandidate } from "./brainLint.js";
+import { type LintFinding } from "./brainLint.js";
+import { type DuplicateCandidate } from "./duplicateDetection.js";
 import { type RefreshProjectsResult } from "./refreshProjects.js";
 export interface SynapseDoctorReport {
     hubClonePath: string;

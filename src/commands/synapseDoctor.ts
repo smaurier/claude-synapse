@@ -37,7 +37,8 @@ import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedC
 import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadHubCorpus } from "../rag/corpus.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
-import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences, checkIndexLinks, checkIndexWeight, formatDuplicateCandidate, type LintFinding, type DuplicateCandidate } from "./brainLint.js";
+import { lintCorpus, checkWipLimit, checkSupersessionReferences, checkIndexLinks, checkIndexWeight, type LintFinding } from "./brainLint.js";
+import { findDuplicateCandidates, formatDuplicateCandidate, type DuplicateCandidate } from "./duplicateDetection.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 import { collectDependencyFindings } from "./dependencyAudit.js";
 import { refreshProjects, type RefreshProjectsResult } from "./refreshProjects.js";

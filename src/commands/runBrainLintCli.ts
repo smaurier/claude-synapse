@@ -3,7 +3,7 @@
  */
 
 import { runBrainLint } from "./runBrainLint.js";
-import { formatDuplicateCandidate } from "./brainLint.js";
+import { formatDuplicateCandidate } from "./duplicateDetection.js";
 
 async function main(): Promise<void> {
   const [pluginDataDir] = process.argv.slice(2);
