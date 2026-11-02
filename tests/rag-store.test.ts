@@ -163,6 +163,12 @@ describe("VectorStore — verrou SQLite concurrent", () => {
     }
   });
 
+  // DEFAULT_BUSY_TIMEOUT_MS (store.ts) vaut 5000ms — exactement le délai par
+  // défaut du test runner, sans aucune marge. Jamais une vraie régression :
+  // ce test attendait pile sur le fil depuis toujours, et une machine chargée
+  // (contention CPU réelle, pas le code sous test) suffit à le faire basculer.
+  // Un vrai dépassement de busy_timeout serait un bug ; un dépassement de
+  // SEULEMENT le timeout du test, sans toucher au comportement, n'en est pas un.
   it("sans option, attend aussi : le défaut n'est pas zéro, sinon le hook de rappel échouerait au premier chevauchement", async () => {
     const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
     const other = new DatabaseSync(dbPath);
@@ -177,5 +183,5 @@ describe("VectorStore — verrou SQLite concurrent", () => {
       other.exec("ROLLBACK");
       other.close();
     }
-  });
+  }, 10_000);
 });

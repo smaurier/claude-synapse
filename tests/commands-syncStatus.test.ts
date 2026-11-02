@@ -112,6 +112,10 @@ describe("detectRepoStatus", () => {
     expect(state.behind).toBe(0);
   });
 
+  // Six vrais sous-processus git (clone + 2x config + add + commit + push), contre
+  // trois pour le test "ok" voisin — le seul de ce fichier qui approche le délai
+  // par défaut de 5000ms sous charge (52 workers en parallèle sur la suite
+  // complète). Marge explicite plutôt qu'un test fragile par coïncidence de timing.
   it("reports 'behind' when the remote has commits the local does not", async () => {
     const remote = join(root, "remote.git");
     const local = join(root, "local");
@@ -133,7 +137,7 @@ describe("detectRepoStatus", () => {
     expect(state.status).toBe("behind");
     expect(state.behind).toBe(1);
     expect(state.ahead).toBe(0);
-  });
+  }, 15_000);
 
   it("reports 'ahead' when the local has commits not yet pushed", async () => {
     const remote = join(root, "remote.git");

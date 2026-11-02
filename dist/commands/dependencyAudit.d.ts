@@ -84,6 +84,36 @@ export declare function classifyVulnerability(name: string, vuln: NpmAuditVulner
  * comptées et nommées séparément, jamais mélangées dans une seule liste.
  */
 export declare function auditVulnerabilities(audit: NpmAuditReport, productionDependencyNames: ReadonlySet<string>): LintFinding[];
+export interface SafeUpdate {
+    name: string;
+    version: string;
+}
+/**
+ * Backlog item 49 (question laissée ouverte le 16/10, tranchée le 01/11/2026
+ * par Sylvain : « oui, une commande explicite ») — le planificateur PUR du
+ * sous-ensemble que la politique approuvée qualifie déjà de « sûr à
+ * appliquer » (voir classifyVulnerability). Aucune seconde règle : une
+ * vulnérabilité n'entre dans le plan QUE si classifyVulnerability la classe
+ * "safe-to-apply", jamais une logique dupliquée qui pourrait diverger.
+ *
+ * Deux formes de `fixAvailable` à résoudre en une cible (nom, version) :
+ *  - objet `{ name, version, isSemVerMajor }` : la cible EST cette donnée,
+ *    telle quelle — `name` peut différer du paquet vulnérable lui-même (un
+ *    paquet profondément transitif se corrige en montant un paquet racine,
+ *    ex. `tinypool` via `vitest`).
+ *  - `true` (booléen) : npm affirme qu'un correctif existe dans la plage
+ *    déjà déclarée, sans donner de version — ce dépôt épingle des versions
+ *    EXACTES, donc "déjà déclarée" ne laisse aucune marge ; la seule cible
+ *    exploitable est `outdated[name].latest`, seulement si ce paquet
+ *    apparaît dans `npm outdated` ET que ce n'est pas un saut majeur. Sans
+ *    ces deux conditions, aucune cible sûre n'est déductible : ignoré, pas
+ *    deviné.
+ *
+ * Dédupliqué par nom de cible (`Map`) : plusieurs vulnérabilités distinctes
+ * peuvent se résoudre par le même paquet racine, une seule installation
+ * suffit. Trié pour un ordre déterministe, pas celui de `Object.entries`.
+ */
+export declare function planSafeUpdates(audit: NpmAuditReport, outdated: NpmOutdatedReport, productionDependencyNames: ReadonlySet<string>): SafeUpdate[];
 /**
  * Les dépendances obsolètes mais pas vulnérables : signal plus faible qu'une
  * vulnérabilité (rien d'exploitable connu), donc délibérément plus discret —
@@ -97,6 +127,54 @@ export declare function auditOutdated(outdated: NpmOutdatedReport, productionDep
  *  exécution ou leur parsing a échoué (voir collectDependencyFindings) :
  *  traité comme "rien à en dire", jamais comme une erreur à propager. */
 export declare function auditDependencies(audit: NpmAuditReport | null, outdated: NpmOutdatedReport | null, productionDependencyNames: ReadonlySet<string>): LintFinding[];
+/**
+ * Le piège de cette tâche : `npm audit` sort en code non-zéro dès qu'une
+ * vulnérabilité existe, et `npm outdated` sort en code non-zéro dès qu'une
+ * dépendance est obsolète — c'est le fonctionnement normal et documenté de
+ * ces deux commandes, pas un échec. Une implémentation qui traite "code non
+ * zéro" comme "échec, ne rien rapporter" ne rapporterait donc jamais rien,
+ * silencieusement, pour toujours — le JSON utile est sur stdout quel que soit
+ * le code de sortie, donc on l'y lit toujours, sans jamais regarder le code
+ * ni laisser une erreur du process (timeout, npm absent, ENOENT) se
+ * propager : on résout toujours avec ce que stdout contient (vide en cas
+ * d'échec dur), jamais de rejet.
+ *
+ * `shell: true` est nécessaire, pas seulement pratique — mesuré le
+ * 16/10/2026 : sur ce poste (Node 23.7.0), `execFile("npm.cmd", ...)` SANS
+ * `shell: true` lève `EINVAL` de façon SYNCHRONE (avant même d'atteindre le
+ * callback), parce que Node refuse désormais d'exécuter directement un
+ * `.bat`/`.cmd` Windows sans passer par un shell (durcissement de sécurité
+ * suite à CVE-2024-27980 — l'exécution directe d'un script batch pouvait
+ * laisser cmd.exe réinterpréter les arguments). `resolveNpmBinary()` seul
+ * (choisir `npm.cmd`) ne suffit donc pas : il faut les deux. Les arguments
+ * passés ici sont toujours des constantes du code, jamais une entrée
+ * utilisateur, donc `shell: true` ne rouvre aucune question d'injection —
+ * c'est la même conclusion que la préférence initiale pour éviter un shell,
+ * juste prouvée fausse par ce test réel sur cette version de Node.
+ * Le `try`/`catch` autour de l'appel est une défense en profondeur : le
+ * contrat de cette fonction est de ne JAMAIS rejeter, donc même un futur
+ * throw synchrone imprévu (autre plateforme, autre version de Node) doit
+ * rendre une chaîne vide plutôt que remonter jusqu'à l'appelant.
+ *
+ * Générique (pas câblée sur "npm") et son timeout en paramètre explicite —
+ * exportée pour être testée directement en lançant un vrai sous-processus
+ * (`node -e "..."` en lieu et place d'un vrai `npm`), seul moyen de prouver
+ * le piège ci-dessus sans dépendre d'un vrai `npm` installé dans
+ * l'environnement de test.
+ */
+/**
+ * `shell: true` est indispensable pour atteindre un `.cmd` sous Windows, mais il
+ * concatene la commande et les arguments SANS les echapper : un chemin qui
+ * contient un blanc est coupe au premier espace. Mesure du 29/10/2026 sur un
+ * poste Windows ordinaire, ou Node vit dans `C:\Program Files\nodejs` : cmd.exe
+ * repond « 'C:\Program' n'est pas reconnu » et stdout revient VIDE. Comme cette
+ * fonction resout sur stdout sans regarder l'erreur, l'appelant recoit un
+ * silence qu'il lit comme « rien a signaler » : le meme echec silencieux que le
+ * commentaire de `resolveNpmBinary` plus bas dit avoir corrige, revenu par une
+ * autre porte. La CI ne pouvait pas l'attraper : sur `windows-latest`, Node est
+ * installe dans `C:\hostedtoolcache`, sans espace.
+ */
+export declare function quoteForShell(token: string): string;
 export declare function runCommandCapturingStdout(command: string, args: string[], cwd: string, timeoutMs?: number): Promise<string>;
 /**
  * Mesuré le 16/10/2026 sur ce poste : `execFile("npm", ...)` rend ENOENT
@@ -112,6 +190,10 @@ export declare function runCommandCapturingStdout(command: string, args: string[
  * prétendait être.
  */
 export { resolveNpmBinary } from "../config/dependencies.js";
+/** `JSON.parse` sur une sortie npm, en silence : stdout vide (npm absent,
+ *  timeout, erreur process) ou tronqué/invalide rend `null`, jamais une
+ *  exception qui remonterait jusqu'au hook. */
+export declare function parseNpmJsonSafely<T>(raw: string): T | null;
 export interface DependencyAuditRunner {
     runNpmAudit: (cwd: string) => Promise<string>;
     runNpmOutdated: (cwd: string) => Promise<string>;
@@ -120,6 +202,16 @@ export interface DependencyAuditRunner {
  *  fausses sorties — même convention DI que gitLastCommitDate/fetchImpl
  *  ailleurs dans ce dépôt). */
 export declare const realDependencyAuditRunner: DependencyAuditRunner;
+/**
+ * Lit les dépendances de production déclarées par le plugin lui-même
+ * (`dependencies`, jamais `devDependencies`) depuis son propre package.json —
+ * c'est la distinction production/dev de la politique, prise dans les faits,
+ * jamais devinée sur un nom de paquet. Un package.json absent ou illisible
+ * rend `null` : sans cette liste, aucune classification sûre n'est possible
+ * (impossible de garantir qu'on ne traite pas une dépendance de production
+ * comme sûre), donc mieux vaut ne rien rapporter que mal classer.
+ */
+export declare function readProductionDependencyNames(pluginRoot: string): Set<string> | null;
 /**
  * Le point d'entrée appelé depuis /synapse-doctor. Best-effort de bout en
  * bout : toute défaillance (package.json illisible, npm absent, réseau
