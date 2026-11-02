@@ -109,6 +109,10 @@ call and no ceiling needed. Self-hosted marketplace listing added — see Instal
 [`docs/DESIGN.md`](docs/DESIGN.md) covers the architecture decisions behind each piece, the
 trade-offs made on purpose, and the limitations documented as such rather than left implicit.
 
+## Contributing
+
+Bug reports, improvement requests, and suggestions are welcome — [open an issue](https://github.com/smaurier/claude-synapse/issues/new).
+
 ## License
 
 MIT
