@@ -33,7 +33,8 @@
  * rendre sa propre invocation optionnelle ici.
  */
 import { type LinkState } from "../jonction/jonction.js";
-import { type LintFinding, type DuplicateCandidate } from "./brainLint.js";
+import { type LintFinding } from "./brainLint.js";
+import { type DuplicateCandidate } from "./duplicateDetection.js";
 import { type RefreshProjectsResult } from "./refreshProjects.js";
 export interface SynapseDoctorReport {
     hubClonePath: string;
@@ -46,5 +47,23 @@ export interface SynapseDoctorReport {
     /** machineId -> ISO last-seen timestamp (SharedConfig.knownMachines,
      *  16/08) — the device registry, updated on every SessionStart. */
     knownMachines: Record<string, string>;
+    /** Backlog item 47 (15/10/2026): ensurePinnedEmbeddingModel was dropped from the
+     *  doctor along with the rest of the cosine detector, on the false premise that
+     *  the model only served that one detection — it is also a config health check.
+     *  The real pin/mismatch enforcement still lives on the RAG search/index-refresh
+     *  path (a divergence still surfaces at SessionStart), so this is read-only: just enough
+     *  for a human reading the report to see what's pinned, not a second place that
+     *  throws. */
+    ragEmbeddingModelVersion: string;
 }
 export declare function runSynapseDoctor(pluginDataDir: string, linkPath: string, pluginRoot: string): Promise<SynapseDoctorReport>;
+/**
+ * Pure formatting, separated from synapseDoctorCli.ts's main() for the same reason
+ * formatDuplicateCandidate was pulled out of it (item 44): main() runs `void main()`
+ * at module load, so nothing inside it can be imported into a test without actually
+ * executing a CLI invocation. Backlog item 48 (15/10/2026) found exactly one line —
+ * "aucun doublon détecté" — the spec had explicitly asked to test and never did,
+ * because of this same problem; pulling the whole report format out fixes it for
+ * every line at once, not just that one.
+ */
+export declare function formatDoctorReport(report: SynapseDoctorReport): string[];

@@ -48,6 +48,8 @@ describe("shared config (lives inside the hub, versioned, synced)", () => {
     const cfg = readSharedConfig(hubDir);
     expect(cfg.lockTimeoutMinutes).toBe(20);
     expect(cfg.auditCadenceDays).toBe(DEFAULT_SHARED_CONFIG.auditCadenceDays);
+    expect(cfg.ideasRefreshCadenceDays).toBe(DEFAULT_SHARED_CONFIG.ideasRefreshCadenceDays);
+    expect(cfg.indexMaxBytes).toBe(DEFAULT_SHARED_CONFIG.indexMaxBytes);
   });
 
   it("writes the config file inside the hub so it travels with git, not next to it", () => {

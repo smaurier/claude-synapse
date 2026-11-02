@@ -4,7 +4,8 @@
  * deterministic duplicate-candidate detection (findDuplicateCandidates) —
  * two rules (slug collision, verbatim n-gram overlap), no model call.
  */
-import { type LintFinding, type DuplicateCandidate } from "./brainLint.js";
+import { type LintFinding } from "./brainLint.js";
+import { type DuplicateCandidate } from "./duplicateDetection.js";
 export interface BrainLintReport {
     findings: LintFinding[];
     duplicateCandidates: DuplicateCandidate[];

@@ -66,6 +66,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full reasoning and trade-offs, no
 | `/synapse-refresh-projects` | Link every Claude Code project found under a given root, in one pass — the root is remembered, so `/synapse-doctor` keeps re-scanning it on its own afterwards. |
 | `/synapse-sync` | Manual commit + push, in case the automatic hook didn't run. |
 | `/synapse-market-watch` | Read-only GitHub scan of comparable projects — never acts on what it finds. |
+| `/synapse-ideas-refresh` | Recoups the hub's ideas registry against its real current state and updates it. Model judgment, same rule as `/brain-audit`: never triggered blind by a hook — only the staleness signal is. |
 | `/synapse-uninstall` | Remove the link and local config for this project. The hub itself is never touched. |
 
 ## Install

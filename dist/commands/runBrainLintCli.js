@@ -2,7 +2,7 @@
  * node "${CLAUDE_PLUGIN_ROOT}/dist/commands/runBrainLintCli.js" "${CLAUDE_PLUGIN_DATA}"
  */
 import { runBrainLint } from "./runBrainLint.js";
-import { formatDuplicateCandidate } from "./brainLint.js";
+import { formatDuplicateCandidate } from "./duplicateDetection.js";
 async function main() {
     const [pluginDataDir] = process.argv.slice(2);
     if (!pluginDataDir) {

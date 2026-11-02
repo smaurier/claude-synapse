@@ -37,7 +37,8 @@ import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, writeSharedC
 import { acquireLock, releaseLock } from "../lock/lock.js";
 import { loadHubCorpus } from "../rag/corpus.js";
 import { inspectLink, createLink, removeLink, type LinkState } from "../jonction/jonction.js";
-import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences, type LintFinding, type DuplicateCandidate } from "./brainLint.js";
+import { lintCorpus, checkWipLimit, checkSupersessionReferences, checkIndexLinks, checkIndexWeight, type LintFinding } from "./brainLint.js";
+import { findDuplicateCandidates, formatDuplicateCandidate, type DuplicateCandidate } from "./duplicateDetection.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 import { collectDependencyFindings } from "./dependencyAudit.js";
 import { refreshProjects, type RefreshProjectsResult } from "./refreshProjects.js";
@@ -53,6 +54,14 @@ export interface SynapseDoctorReport {
   /** machineId -> ISO last-seen timestamp (SharedConfig.knownMachines,
    *  16/08) — the device registry, updated on every SessionStart. */
   knownMachines: Record<string, string>;
+  /** Backlog item 47 (15/10/2026): ensurePinnedEmbeddingModel was dropped from the
+   *  doctor along with the rest of the cosine detector, on the false premise that
+   *  the model only served that one detection — it is also a config health check.
+   *  The real pin/mismatch enforcement still lives on the RAG search/index-refresh
+   *  path (a divergence still surfaces at SessionStart), so this is read-only: just enough
+   *  for a human reading the report to see what's pinned, not a second place that
+   *  throws. */
+  ragEmbeddingModelVersion: string;
 }
 
 export async function runSynapseDoctor(pluginDataDir: string, linkPath: string, pluginRoot: string): Promise<SynapseDoctorReport> {
@@ -87,6 +96,8 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string, 
     ...lintCorpus(corpus),
     ...checkWipLimit(corpus, new Date(), sharedForRead.wipLimit),
     ...checkSupersessionReferences(corpus),
+    ...checkIndexLinks(corpus),
+    ...checkIndexWeight(corpus, sharedForRead.indexMaxBytes),
     ...citedCodeDriftFindings,
     ...dependencyFindings,
   ];
@@ -122,5 +133,43 @@ export async function runSynapseDoctor(pluginDataDir: string, linkPath: string, 
     duplicateCandidates,
     projectsRelinked,
     knownMachines: sharedForRead.knownMachines,
+    ragEmbeddingModelVersion: sharedForRead.ragEmbeddingModelVersion,
   };
+}
+
+/**
+ * Pure formatting, separated from synapseDoctorCli.ts's main() for the same reason
+ * formatDuplicateCandidate was pulled out of it (item 44): main() runs `void main()`
+ * at module load, so nothing inside it can be imported into a test without actually
+ * executing a CLI invocation. Backlog item 48 (15/10/2026) found exactly one line —
+ * "aucun doublon détecté" — the spec had explicitly asked to test and never did,
+ * because of this same problem; pulling the whole report format out fixes it for
+ * every line at once, not just that one.
+ */
+export function formatDoctorReport(report: SynapseDoctorReport): string[] {
+  const lines: string[] = [];
+
+  lines.push(`hub: ${report.hubClonePath} (${report.fileCount} fichiers)`);
+  lines.push(`lien: ${report.linkState}${report.linkAutoFixed ? " (recréé automatiquement, était cassé)" : ""}`);
+  lines.push(`modèle d'embedding épinglé : ${report.ragEmbeddingModelVersion}`);
+
+  const machines = Object.entries(report.knownMachines).sort(([, a], [, b]) => b.localeCompare(a));
+  if (machines.length > 0) {
+    lines.push(`machines connues (${machines.length}) :`);
+    for (const [machineId, lastSeenAt] of machines) lines.push(`  ${machineId} — vu la dernière fois : ${lastSeenAt}`);
+  }
+
+  if (report.projectsRelinked.length > 0) {
+    lines.push(`projets (re)liés depuis les racines mémorisées : ${report.projectsRelinked.length}`);
+    for (const p of report.projectsRelinked) lines.push(`  ${p.projectDir} — ${p.link.action}`);
+  }
+
+  if (report.findings.length === 0 && report.duplicateCandidates.length === 0) {
+    lines.push("brain-lint: rien à signaler, aucun doublon détecté.");
+  } else {
+    for (const f of report.findings) lines.push(`[${f.severity}] ${f.path} — ${f.message}`);
+    for (const c of report.duplicateCandidates) lines.push(formatDuplicateCandidate(c));
+  }
+
+  return lines;
 }

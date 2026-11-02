@@ -69,9 +69,14 @@ export async function searchForNewCompetitors(
     headers: { Accept: "application/vnd.github+json" },
   });
   if (res.status !== 200) return [];
-  const data = (await res.json()) as { items: { full_name: string; stargazers_count: number; html_url: string; pushed_at: string }[] };
+  const data = (await res.json()) as { items: { full_name: string; stargazers_count: number; html_url: string; pushed_at: string; fork?: boolean }[] };
   return data.items
     .filter((item) => !excludeFullNames.includes(item.full_name))
+    // Backlog A (16/08, item codé 01/11): a fork is never an independent
+    // competitor, it's a copy of a project already counted elsewhere —
+    // objective noise, unlike pushedAt below (surfaced for a human to judge,
+    // never filtered, because staleness IS a judgment call).
+    .filter((item) => !item.fork)
     .map((item) => ({ fullName: item.full_name, stars: item.stargazers_count, url: item.html_url, pushedAt: item.pushed_at }));
 }
 

@@ -7,7 +7,8 @@
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
 import { loadHubCorpus } from "../rag/corpus.js";
-import { lintCorpus, findDuplicateCandidates, checkWipLimit, checkSupersessionReferences, type LintFinding, type DuplicateCandidate } from "./brainLint.js";
+import { lintCorpus, checkWipLimit, checkSupersessionReferences, checkIndexLinks, checkIndexWeight, type LintFinding } from "./brainLint.js";
+import { findDuplicateCandidates, type DuplicateCandidate } from "./duplicateDetection.js";
 import { checkCitedCodeDrift, createGitLastCommitDateResolver } from "./citedCodeDrift.js";
 
 export interface BrainLintReport {
@@ -27,6 +28,8 @@ export async function runBrainLint(pluginDataDir: string): Promise<BrainLintRepo
     ...lintCorpus(corpus),
     ...checkWipLimit(corpus, new Date(), shared.wipLimit),
     ...checkSupersessionReferences(corpus),
+    ...checkIndexLinks(corpus),
+    ...checkIndexWeight(corpus, shared.indexMaxBytes),
     ...citedCodeDriftFindings,
   ];
 

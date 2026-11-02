@@ -3,8 +3,7 @@
  *   "${CLAUDE_PLUGIN_DATA}" <linkPath>
  */
 
-import { runSynapseDoctor } from "./synapseDoctor.js";
-import { formatDuplicateCandidate } from "./brainLint.js";
+import { runSynapseDoctor, formatDoctorReport } from "./synapseDoctor.js";
 import { resolvePluginRoot } from "../config/dependencies.js";
 
 async function main(): Promise<void> {
@@ -23,27 +22,7 @@ async function main(): Promise<void> {
     // plugin sans argument CLI supplémentaire.
     const pluginRoot = resolvePluginRoot(import.meta.url);
     const report = await runSynapseDoctor(pluginDataDir, linkPath, pluginRoot);
-
-    console.log(`hub: ${report.hubClonePath} (${report.fileCount} fichiers)`);
-    console.log(`lien: ${report.linkState}${report.linkAutoFixed ? " (recréé automatiquement, était cassé)" : ""}`);
-
-    const machines = Object.entries(report.knownMachines).sort(([, a], [, b]) => b.localeCompare(a));
-    if (machines.length > 0) {
-      console.log(`machines connues (${machines.length}) :`);
-      for (const [machineId, lastSeenAt] of machines) console.log(`  ${machineId} — vu la dernière fois : ${lastSeenAt}`);
-    }
-
-    if (report.projectsRelinked.length > 0) {
-      console.log(`projets (re)liés depuis les racines mémorisées : ${report.projectsRelinked.length}`);
-      for (const p of report.projectsRelinked) console.log(`  ${p.projectDir} — ${p.link.action}`);
-    }
-
-    if (report.findings.length === 0 && report.duplicateCandidates.length === 0) {
-      console.log("brain-lint: rien à signaler, aucun doublon détecté.");
-    } else {
-      for (const f of report.findings) console.log(`[${f.severity}] ${f.path} — ${f.message}`);
-      for (const c of report.duplicateCandidates) console.log(formatDuplicateCandidate(c));
-    }
+    for (const line of formatDoctorReport(report)) console.log(line);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;

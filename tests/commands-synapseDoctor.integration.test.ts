@@ -55,6 +55,19 @@ describeWithModel("runSynapseDoctor", () => {
     expect(readSharedConfig(hubDir).lastAuditAt).not.toBeNull();
   }, 120_000);
 
+  // Backlog item 47 (15/10/2026) : ensurePinnedEmbeddingModel a été retiré du docteur
+  // avec le reste du détecteur cosinus, sur la prémisse fausse que le modèle ne servait
+  // qu'à ça — c'est aussi un contrôle de santé de la config. Le docteur doit au moins
+  // exposer la valeur épinglée en lecture seule, même sans la lever en exception.
+  it("exposes the pinned embedding model version read-only", async () => {
+    createLink(hubDir, linkPath);
+    writeSharedConfig(hubDir, { ...DEFAULT_SHARED_CONFIG, ragEmbeddingModelVersion: "Xenova/some-model" });
+
+    const report = await runSynapseDoctor(pluginDataDir, linkPath, pluginRootWithoutPackageJson);
+
+    expect(report.ragEmbeddingModelVersion).toBe("Xenova/some-model");
+  }, 120_000);
+
   it("auto-fixes a broken link but leaves a wrong-target link alone", async () => {
     const ghostHub = join(root, "ghost");
     mkdirSync(ghostHub, { recursive: true });

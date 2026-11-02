@@ -103,6 +103,29 @@ describe("searchForNewCompetitors", () => {
     );
     expect(results[0]?.pushedAt).toBe("2024-01-01T00:00:00Z");
   });
+
+  // Backlog A (16/08/2026, item codé le 01/11/2026) : contrairement à pushedAt
+  // (surfacé pour un jugement humain, jamais filtré — voir le test ci-dessus), un
+  // fork n'est jamais un concurrent indépendant : c'est une copie d'un projet déjà
+  // présent ailleurs dans le rapport (connu ou lui-même remonté par la recherche).
+  // Du bruit objectif, pas un jugement de valeur — exclu, pas seulement annoté.
+  it("excludes forks from search results, unlike an ordinary unrelated repo", async () => {
+    const results = await searchForNewCompetitors(
+      "claude memory",
+      fakeFetch({
+        "search/repositories": {
+          status: 200,
+          body: {
+            items: [
+              { full_name: "someone/fork-of-popular-tool", stargazers_count: 12, html_url: "x", fork: true },
+              { full_name: "someone-new/claude-mind", stargazers_count: 5, html_url: "y", fork: false },
+            ],
+          },
+        },
+      }),
+    );
+    expect(results).toEqual([{ fullName: "someone-new/claude-mind", stars: 5, url: "y" }]);
+  });
 });
 
 // Ajouté 16/08 : une seule requête mot-clé fixe ratait des projets dont la
