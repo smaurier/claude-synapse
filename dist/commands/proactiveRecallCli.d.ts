@@ -8,6 +8,7 @@
  * legitimately produce nothing.
  *
  * Same fail-silent contract as postCompactCli.ts: any failure here degrades
- * to printing `{}`. The session must never be blocked by a recall attempt.
+ * to printing `{}`. The session must never be blocked by a recall attempt,
+ * including a slow one: see recallDeadline.ts for the internal deadline.
  */
 export {};
