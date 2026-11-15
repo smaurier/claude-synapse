@@ -19,4 +19,12 @@ export interface SyncBrainResult {
     secretsFound?: Record<string, SecretMatch[]>;
     commitHash?: string;
 }
-export declare function syncBrain(hubClonePath: string, machineId: string): Promise<SyncBrainResult>;
+/** Kept well under the SessionEnd hook timeout (60 s): git itself needs
+ *  the rest. Contract checked by a test against hooks.json. */
+export declare const SYNC_LOCK_WAIT_MS = 30000;
+export interface SyncBrainOptions {
+    /** How long to wait for another process (another session of this same
+     *  machine, typically) holding the lock. The SessionEnd hook allows 60 s. */
+    lockWaitMs?: number;
+}
+export declare function syncBrain(hubClonePath: string, machineId: string, { lockWaitMs }?: SyncBrainOptions): Promise<SyncBrainResult>;

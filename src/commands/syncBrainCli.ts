@@ -16,7 +16,7 @@ import { syncBrain } from "./syncBrain.js";
 const STATUS_LABELS: Record<string, string> = {
   "nothing-to-sync": "rien à synchroniser.",
   synced: "synchronisé.",
-  "aborted-lock-held": "verrou du hub détenu par une autre machine — réessai au prochain sync.",
+  "aborted-lock-held": "verrou du hub toujours détenu (autre machine ou autre session) après 30 s d'attente, réessai au prochain sync.",
   "aborted-push-conflict": "commit local effectué, mais push refusé (le hub distant a divergé) — résoudre manuellement.",
 };
 

@@ -3,8 +3,8 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { syncBrain } from "../src/commands/syncBrain.js";
-import { acquireLock } from "../src/lock/lock.js";
+import { syncBrain, SYNC_LOCK_WAIT_MS } from "../src/commands/syncBrain.js";
+import { acquireLock, releaseLock } from "../src/lock/lock.js";
 import { ensureHubGitignore } from "../src/config/hubGitignore.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
@@ -88,10 +88,21 @@ describe("syncBrain", () => {
     writeFileSync(join(hubClonePath, "b.md"), "nouveau fait", "utf8");
     acquireLock(hubClonePath, "autre-machine", 10);
 
-    const result = await syncBrain(hubClonePath, "machine-a");
+    const result = await syncBrain(hubClonePath, "machine-a", { lockWaitMs: 0 });
 
     expect(result.status).toBe("aborted-lock-held");
   }, 15_000);
+
+  // 15/11/2026 : deux sessions du meme poste qui se ferment ensemble.
+  it("waits for another live process of the same machine, then syncs", async () => {
+    writeFileSync(join(hubClonePath, "b.md"), "nouveau fait", "utf8");
+    acquireLock(hubClonePath, "machine-a", 10, new Date(), process.ppid);
+    setTimeout(() => releaseLock(hubClonePath, "machine-a", process.ppid), 500);
+
+    const result = await syncBrain(hubClonePath, "machine-a", { lockWaitMs: 10_000 });
+
+    expect(result.status).toBe("synced");
+  }, 20_000);
 
   it("commits locally but reports aborted-push-conflict on real divergence, without force-pushing", async () => {
     // Another machine pushes first.
@@ -114,4 +125,15 @@ describe("syncBrain", () => {
     // The local commit still exists — nothing was lost.
     expect(git(["rev-list", "--count", "HEAD"], hubClonePath).trim()).toBe("2");
   }, 15_000);
+});
+
+describe("syncBrain lock wait vs the SessionEnd hook", () => {
+  it("leaves at least 20 s for git inside every SessionEnd sync hook timeout", () => {
+    const hooks = JSON.parse(readFileSync(join(__dirname, "..", "hooks", "hooks.json"), "utf8")) as {
+      hooks: Record<string, Array<{ hooks: Array<{ command: string; timeout?: number }> }>>;
+    };
+    const syncHooks = (hooks.hooks.SessionEnd ?? []).flatMap((g) => g.hooks).filter((h) => h.command.includes("syncBrainCli.js"));
+    expect(syncHooks.length).toBeGreaterThan(0);
+    for (const h of syncHooks) expect(SYNC_LOCK_WAIT_MS + 20_000).toBeLessThanOrEqual((h.timeout ?? 0) * 1000);
+  });
 });
