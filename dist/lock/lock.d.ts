@@ -1,12 +1,16 @@
 /**
- * Whole-repo lock (problème 3, 13/08) — covers memory AND the shared config
+ * Whole-repo lock (problème 3, 13/08): covers memory AND the shared config
  * (problème 2's config lives in the same hub repo, same risk of concurrent
  * overwrite). Granularity is deliberately the whole repo, not per-file: the
  * corpus size doesn't justify the complexity of a finer lock.
  *
- * The lock file itself lives inside the hub (.synapse/.sync-lock) so it
- * travels with push/pull like everything else — no external coordination
- * service needed.
+ * The lock file lives inside the hub (.synapse/.sync-lock), gitignored.
+ *
+ * The holder is a PROCESS (machineId + pid), not a machine (15/11/2026):
+ * two Claude sessions on the same machine share a machineId, and the old
+ * "same machine re-acquires" rule handed the lock to both at once, then
+ * whichever finished first released the other's lock. Creation is atomic
+ * (flag "wx"), so two processes racing on an absent lock can't both win.
  */
 export type AcquireResult = {
     acquired: true;
@@ -17,17 +21,25 @@ export type AcquireResult = {
 };
 /**
  * Attempts to acquire the whole-repo lock.
- * - No lock present -> acquired.
- * - Lock owned by the SAME machine -> re-acquired (retry-safe).
- * - Lock owned by another machine, but older than timeoutMinutes -> reclaimed
- *   (a crashed machine must never block the other one forever).
- * - Lock owned by another machine, still fresh -> refused.
+ * - No lock present -> acquired (atomically).
+ * - Held by this very process -> re-acquired (retry-safe).
+ * - Held by a dead process of this machine, or a pre-pid lock of this
+ *   machine -> reclaimed at once.
+ * - Held by anyone for longer than timeoutMinutes -> reclaimed.
+ * - Otherwise (live process here, or fresh lock from another machine) -> refused.
  */
-export declare function acquireLock(hubDir: string, machineId: string, timeoutMinutes: number, now?: Date): AcquireResult;
+export declare function acquireLock(hubDir: string, machineId: string, timeoutMinutes: number, now?: Date, pid?: number): AcquireResult;
+export interface RetryOptions {
+    /** Total time to keep trying. 0 = a single attempt. */
+    waitMs: number;
+    intervalMs?: number;
+}
+/** Same rules as acquireLock, but waits for a live holder to finish:
+ *  two sessions ending together must queue, not drop one sync. */
+export declare function acquireLockWithRetry(hubDir: string, machineId: string, timeoutMinutes: number, { waitMs, intervalMs }: RetryOptions): Promise<AcquireResult>;
 /**
- * Releases the lock — but ONLY if it's currently held by machineId. A safe
- * no-op otherwise (no lock present, or held by someone else): releasing a
- * lock you don't hold would mean stealing a still-valid lock from another
- * machine, exactly what the lock exists to prevent.
+ * Releases the lock, but ONLY if this process holds it. A safe no-op
+ * otherwise: releasing a lock you don't hold would mean stealing a
+ * still-valid lock, exactly what the lock exists to prevent.
  */
-export declare function releaseLock(hubDir: string, machineId: string): void;
+export declare function releaseLock(hubDir: string, machineId: string, pid?: number): void;

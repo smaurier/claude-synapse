@@ -65,6 +65,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full reasoning and trade-offs, no
 | `/synapse-config` | Read or edit the hub's shared config, or forget a retired machine — never by hand-editing a file. |
 | `/synapse-refresh-projects` | Link every Claude Code project found under a given root, in one pass — the root is remembered, so `/synapse-doctor` keeps re-scanning it on its own afterwards. |
 | `/synapse-sync` | Manual commit + push, in case the automatic hook didn't run. |
+| `/synapse-commit` | How a session commits into the hub: only the named paths, under the hub lock, then push. When several sessions share the hub, one session's `git add -A` would sweep another's edits; this commits nothing else, and names the commit a path already went into when another session took it. |
 | `/synapse-market-watch` | Read-only GitHub scan of comparable projects — never acts on what it finds. |
 | `/synapse-ideas-refresh` | Recoups the hub's ideas registry against its real current state and updates it. Model judgment, same rule as `/brain-audit`: never triggered blind by a hook — only the staleness signal is. |
 | `/synapse-uninstall` | Remove the link and local config for this project. The hub itself is never touched. |

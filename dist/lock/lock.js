@@ -1,62 +1,120 @@
 /**
- * Whole-repo lock (problème 3, 13/08) — covers memory AND the shared config
+ * Whole-repo lock (problème 3, 13/08): covers memory AND the shared config
  * (problème 2's config lives in the same hub repo, same risk of concurrent
  * overwrite). Granularity is deliberately the whole repo, not per-file: the
  * corpus size doesn't justify the complexity of a finer lock.
  *
- * The lock file itself lives inside the hub (.synapse/.sync-lock) so it
- * travels with push/pull like everything else — no external coordination
- * service needed.
+ * The lock file lives inside the hub (.synapse/.sync-lock), gitignored.
+ *
+ * The holder is a PROCESS (machineId + pid), not a machine (15/11/2026):
+ * two Claude sessions on the same machine share a machineId, and the old
+ * "same machine re-acquires" rule handed the lock to both at once, then
+ * whichever finished first released the other's lock. Creation is atomic
+ * (flag "wx"), so two processes racing on an absent lock can't both win.
  */
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 function lockPath(hubDir) {
     return join(hubDir, ".synapse", ".sync-lock");
 }
 function readLock(hubDir) {
-    const path = lockPath(hubDir);
-    if (!existsSync(path))
-        return null;
-    return JSON.parse(readFileSync(path, "utf8"));
+    try {
+        return JSON.parse(readFileSync(lockPath(hubDir), "utf8"));
+    }
+    catch (err) {
+        if (err.code === "ENOENT")
+            return null;
+        throw err;
+    }
 }
-function writeLock(hubDir, machineId, at) {
+/** Atomic create: false if a lock file already exists. */
+function tryCreateLock(hubDir, machineId, pid, at) {
     const path = lockPath(hubDir);
-    // A freshly cloned hub (bootstrap's first machine) has no .synapse/ yet —
-    // found 14/08 wiring the lock into bootstrap.ts, masked until then because
-    // lock.test.ts's fixture always pre-created the directory.
+    // A freshly cloned hub (bootstrap's first machine) has no .synapse/ yet.
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ machineId, acquiredAt: at.toISOString() }, null, 2), "utf8");
+    try {
+        writeFileSync(path, JSON.stringify({ machineId, pid, acquiredAt: at.toISOString() }, null, 2), {
+            encoding: "utf8",
+            flag: "wx",
+        });
+        return true;
+    }
+    catch (err) {
+        if (err.code === "EEXIST")
+            return false;
+        throw err;
+    }
+}
+function isProcessAlive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (err) {
+        // EPERM: the process exists, we just may not signal it.
+        return err.code === "EPERM";
+    }
+}
+function describeHolder(lock) {
+    return lock.pid === undefined ? lock.machineId : `${lock.machineId} (pid ${lock.pid})`;
+}
+function isReclaimable(existing, machineId, timeoutMinutes, now) {
+    const ageMs = now.getTime() - new Date(existing.acquiredAt).getTime();
+    if (ageMs > timeoutMinutes * 60_000)
+        return true; // a crashed holder must never block forever
+    if (existing.machineId !== machineId)
+        return false; // can't see another machine's processes
+    return existing.pid === undefined || !isProcessAlive(existing.pid);
 }
 /**
  * Attempts to acquire the whole-repo lock.
- * - No lock present -> acquired.
- * - Lock owned by the SAME machine -> re-acquired (retry-safe).
- * - Lock owned by another machine, but older than timeoutMinutes -> reclaimed
- *   (a crashed machine must never block the other one forever).
- * - Lock owned by another machine, still fresh -> refused.
+ * - No lock present -> acquired (atomically).
+ * - Held by this very process -> re-acquired (retry-safe).
+ * - Held by a dead process of this machine, or a pre-pid lock of this
+ *   machine -> reclaimed at once.
+ * - Held by anyone for longer than timeoutMinutes -> reclaimed.
+ * - Otherwise (live process here, or fresh lock from another machine) -> refused.
  */
-export function acquireLock(hubDir, machineId, timeoutMinutes, now = new Date()) {
+export function acquireLock(hubDir, machineId, timeoutMinutes, now = new Date(), pid = process.pid) {
+    if (tryCreateLock(hubDir, machineId, pid, now))
+        return { acquired: true };
     const existing = readLock(hubDir);
-    if (!existing || existing.machineId === machineId) {
-        writeLock(hubDir, machineId, now);
-        return { acquired: true };
+    if (!existing) {
+        // Released between our attempt and our read: one more atomic try.
+        return tryCreateLock(hubDir, machineId, pid, now)
+            ? { acquired: true }
+            : { acquired: false, heldBy: "inconnu", since: now.toISOString() };
     }
-    const ageMs = now.getTime() - new Date(existing.acquiredAt).getTime();
-    if (ageMs > timeoutMinutes * 60_000) {
-        writeLock(hubDir, machineId, now);
+    if (existing.machineId === machineId && existing.pid === pid)
         return { acquired: true };
+    if (isReclaimable(existing, machineId, timeoutMinutes, now)) {
+        unlinkSync(lockPath(hubDir));
+        if (tryCreateLock(hubDir, machineId, pid, now))
+            return { acquired: true };
+        const winner = readLock(hubDir);
+        return { acquired: false, heldBy: winner ? describeHolder(winner) : "inconnu", since: winner?.acquiredAt ?? now.toISOString() };
     }
-    return { acquired: false, heldBy: existing.machineId, since: existing.acquiredAt };
+    return { acquired: false, heldBy: describeHolder(existing), since: existing.acquiredAt };
+}
+/** Same rules as acquireLock, but waits for a live holder to finish:
+ *  two sessions ending together must queue, not drop one sync. */
+export async function acquireLockWithRetry(hubDir, machineId, timeoutMinutes, { waitMs, intervalMs = 250 }) {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+        const result = acquireLock(hubDir, machineId, timeoutMinutes);
+        if (result.acquired || Date.now() >= deadline)
+            return result;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(intervalMs, Math.max(0, deadline - Date.now()))));
+    }
 }
 /**
- * Releases the lock — but ONLY if it's currently held by machineId. A safe
- * no-op otherwise (no lock present, or held by someone else): releasing a
- * lock you don't hold would mean stealing a still-valid lock from another
- * machine, exactly what the lock exists to prevent.
+ * Releases the lock, but ONLY if this process holds it. A safe no-op
+ * otherwise: releasing a lock you don't hold would mean stealing a
+ * still-valid lock, exactly what the lock exists to prevent.
  */
-export function releaseLock(hubDir, machineId) {
+export function releaseLock(hubDir, machineId, pid = process.pid) {
     const existing = readLock(hubDir);
-    if (existing && existing.machineId === machineId) {
+    if (existing && existing.machineId === machineId && existing.pid === pid) {
         unlinkSync(lockPath(hubDir));
     }
 }

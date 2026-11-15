@@ -14,7 +14,7 @@
 import { existsSync, statSync, readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { runGit } from "../config/git.js";
-import { acquireLock, releaseLock } from "../lock/lock.js";
+import { acquireLockWithRetry, releaseLock } from "../lock/lock.js";
 import { DEFAULT_SHARED_CONFIG } from "../config/config.js";
 import { scanFilesForSecrets } from "../security/secretScan.js";
 function journalPath(hubDir) {
@@ -36,7 +36,10 @@ function parseChangedPaths(porcelainOutput) {
         return arrowIdx === -1 ? path : path.slice(arrowIdx + 4);
     });
 }
-export async function syncBrain(hubClonePath, machineId) {
+/** Kept well under the SessionEnd hook timeout (60 s): git itself needs
+ *  the rest. Contract checked by a test against hooks.json. */
+export const SYNC_LOCK_WAIT_MS = 30_000;
+export async function syncBrain(hubClonePath, machineId, { lockWaitMs = SYNC_LOCK_WAIT_MS } = {}) {
     const statusOutput = await runGit(["status", "--porcelain"], hubClonePath);
     const changedPaths = parseChangedPaths(statusOutput);
     if (changedPaths.length === 0) {
@@ -53,7 +56,9 @@ export async function syncBrain(hubClonePath, machineId) {
     if (Object.keys(secretsFound).length > 0) {
         return { status: "aborted-secrets-found", secretsFound };
     }
-    const lockResult = acquireLock(hubClonePath, machineId, DEFAULT_SHARED_CONFIG.lockTimeoutMinutes);
+    const lockResult = await acquireLockWithRetry(hubClonePath, machineId, DEFAULT_SHARED_CONFIG.lockTimeoutMinutes, {
+        waitMs: lockWaitMs,
+    });
     if (!lockResult.acquired) {
         return { status: "aborted-lock-held" };
     }
