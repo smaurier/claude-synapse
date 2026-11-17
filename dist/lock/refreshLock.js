@@ -7,11 +7,17 @@
  * guards git operations and holding it for minutes would block every other
  * session's commit.
  */
-import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isProcessAlive } from "./lock.js";
+/** A takeover is a handful of synchronous file operations: a marker this old
+ *  belongs to a process that died in the middle of one. */
+const TAKEOVER_MAX_AGE_MS = 10_000;
 export function refreshLockPath(pluginDataDir) {
     return join(pluginDataDir, "refresh-index.lock");
+}
+export function takeoverMarkerPath(pluginDataDir) {
+    return join(pluginDataDir, "refresh-index.lock.takeover");
 }
 function tryCreate(pluginDataDir, pid, at) {
     mkdirSync(pluginDataDir, { recursive: true });
@@ -54,6 +60,62 @@ function isStale(holder, maxAgeMs, now) {
         return true;
     return holder.pid !== null && !isProcessAlive(holder.pid);
 }
+function tryCreateTakeoverMarker(pluginDataDir) {
+    try {
+        writeFileSync(takeoverMarkerPath(pluginDataDir), "", { flag: "wx" });
+        return true;
+    }
+    catch (err) {
+        if (err.code === "EEXIST")
+            return false;
+        throw err;
+    }
+}
+function isTakeoverAbandoned(pluginDataDir, now) {
+    try {
+        return now.getTime() - statSync(takeoverMarkerPath(pluginDataDir)).mtimeMs > TAKEOVER_MAX_AGE_MS;
+    }
+    catch (err) {
+        if (err.code === "ENOENT")
+            return true;
+        throw err;
+    }
+}
+function enterTakeover(pluginDataDir, now) {
+    if (tryCreateTakeoverMarker(pluginDataDir))
+        return true;
+    if (!isTakeoverAbandoned(pluginDataDir, now))
+        return false;
+    rmSync(takeoverMarkerPath(pluginDataDir), { force: true });
+    return tryCreateTakeoverMarker(pluginDataDir);
+}
+/**
+ * Replaces a stale lock, one process at a time. Deleting the stale file and
+ * creating one's own are two steps: without the marker, a process that read
+ * the stale lock a moment earlier deleted the fresh lock of whoever took over
+ * first, then created its own (measured 17/11/2026: three to eight holders
+ * out of eight processes started together). Under the marker, the lock is
+ * read again and only deleted if it is still the one seen stale.
+ *
+ * Residual: a marker abandoned by a process killed mid-takeover is cleared
+ * by age, and that clearing is not itself serialized.
+ */
+export function takeOverStaleLock(pluginDataDir, observed, pid, now) {
+    if (!enterTakeover(pluginDataDir, now))
+        return false;
+    try {
+        const current = readHolder(pluginDataDir);
+        if (current !== null) {
+            if (current.pid !== observed.pid || current.acquiredAt !== observed.acquiredAt)
+                return false;
+            unlinkSync(refreshLockPath(pluginDataDir));
+        }
+        return tryCreate(pluginDataDir, pid, now);
+    }
+    finally {
+        rmSync(takeoverMarkerPath(pluginDataDir), { force: true });
+    }
+}
 /**
  * Not re-entrant on purpose: a process asking twice means two refreshes.
  * `maxAgeMs` must exceed the refresh's own time ceiling, so that a lock this
@@ -63,15 +125,14 @@ export function acquireRefreshLock(pluginDataDir, maxAgeMs, now = new Date(), pi
     if (tryCreate(pluginDataDir, pid, now))
         return { acquired: true };
     const holder = readHolder(pluginDataDir);
-    if (holder === null || isStale(holder, maxAgeMs, now)) {
-        if (holder !== null)
-            unlinkSync(refreshLockPath(pluginDataDir));
-        if (tryCreate(pluginDataDir, pid, now))
-            return { acquired: true };
-        const winner = readHolder(pluginDataDir);
-        return { acquired: false, heldByPid: winner?.pid ?? null, since: winner?.acquiredAt ?? now.toISOString() };
+    if (holder !== null && !isStale(holder, maxAgeMs, now)) {
+        return { acquired: false, heldByPid: holder.pid, since: holder.acquiredAt };
     }
-    return { acquired: false, heldByPid: holder.pid, since: holder.acquiredAt };
+    const took = holder === null ? tryCreate(pluginDataDir, pid, now) : takeOverStaleLock(pluginDataDir, holder, pid, now);
+    if (took)
+        return { acquired: true };
+    const winner = readHolder(pluginDataDir);
+    return { acquired: false, heldByPid: winner?.pid ?? null, since: winner?.acquiredAt ?? now.toISOString() };
 }
 export function releaseRefreshLock(pluginDataDir, pid = process.pid) {
     if (readHolder(pluginDataDir)?.pid === pid)

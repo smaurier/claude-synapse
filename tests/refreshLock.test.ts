@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { acquireRefreshLock, refreshLockPath, releaseRefreshLock, withRefreshLock } from "../src/lock/refreshLock.js";
+import {
+  acquireRefreshLock,
+  refreshLockPath,
+  releaseRefreshLock,
+  takeOverStaleLock,
+  takeoverMarkerPath,
+  withRefreshLock,
+} from "../src/lock/refreshLock.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
 // 17/11/2026 : sept sessions ouvertes sur un poste, un hook Stop par fin de
@@ -75,6 +82,60 @@ describe("acquireRefreshLock", () => {
     acquireRefreshLock(pluginDataDir, MAX_AGE_MS, tooOld);
 
     expect(acquireRefreshLock(pluginDataDir, MAX_AGE_MS, new Date(), SOMEONE_ELSE).acquired).toBe(true);
+  });
+});
+
+describe("reprise d'un verrou périmé à plusieurs", () => {
+  // Mesuré le 17/11/2026 sur la 0.1.15 : huit processus lancés ensemble devant
+  // le verrou d'un processus mort, trois à huit se servaient à chaque fois.
+  // Celui qui avait lu le verrou périmé supprimait le verrou neuf du premier
+  // repreneur, puis créait le sien.
+  const deadHolder = (): { pid: number; acquiredAt: string } => {
+    const pid = spawnSync(process.execPath, ["-e", ""]).pid as number;
+    const acquiredAt = new Date(Date.now() - 60_000).toISOString();
+    return { pid, acquiredAt };
+  };
+  const holderOnDisk = (): unknown => JSON.parse(readFileSync(refreshLockPath(pluginDataDir), "utf8"));
+
+  it("ne supprime pas le verrou qu'un autre vient de reprendre", () => {
+    const observedBeforeTheOtherTookOver = deadHolder();
+    acquireRefreshLock(pluginDataDir, MAX_AGE_MS);
+    const freshLock = holderOnDisk();
+
+    const took = takeOverStaleLock(pluginDataDir, observedBeforeTheOtherTookOver, SOMEONE_ELSE, new Date());
+
+    expect(took).toBe(false);
+    expect(holderOnDisk()).toEqual(freshLock);
+  });
+
+  it("laisse la main quand un autre processus est déjà en train de reprendre", () => {
+    const dead = deadHolder();
+    acquireRefreshLock(pluginDataDir, MAX_AGE_MS, new Date(dead.acquiredAt), dead.pid);
+    writeFileSync(takeoverMarkerPath(pluginDataDir), "");
+
+    const result = acquireRefreshLock(pluginDataDir, MAX_AGE_MS);
+
+    expect(result.acquired).toBe(false);
+    expect(holderOnDisk()).toEqual(dead);
+  });
+
+  it("passe outre une reprise abandonnée en route", () => {
+    const dead = deadHolder();
+    acquireRefreshLock(pluginDataDir, MAX_AGE_MS, new Date(dead.acquiredAt), dead.pid);
+    writeFileSync(takeoverMarkerPath(pluginDataDir), "");
+    const aMinuteAgo = new Date(Date.now() - 60_000);
+    utimesSync(takeoverMarkerPath(pluginDataDir), aMinuteAgo, aMinuteAgo);
+
+    expect(acquireRefreshLock(pluginDataDir, MAX_AGE_MS).acquired).toBe(true);
+  });
+
+  it("ne laisse aucune trace de la reprise une fois le verrou pris", () => {
+    const dead = deadHolder();
+    acquireRefreshLock(pluginDataDir, MAX_AGE_MS, new Date(dead.acquiredAt), dead.pid);
+
+    acquireRefreshLock(pluginDataDir, MAX_AGE_MS);
+
+    expect(existsSync(takeoverMarkerPath(pluginDataDir))).toBe(false);
   });
 });
 
