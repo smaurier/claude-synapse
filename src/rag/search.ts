@@ -71,6 +71,13 @@ export function stopAfter(maxMs: number, now: () => number = Date.now): () => bo
 
 const neverStop = (): boolean => false;
 
+type EmbeddedChunk = { chunkId: string; embedding: number[] };
+
+/** How many freshly embedded chunks may be lost to a hard kill. At 58 ms per
+ *  chunk (measured 17/11/2026) a batch is about two seconds of work, and one
+ *  transaction instead of thirty-two. */
+const PROGRESS_BATCH_SIZE = 32;
+
 /** The question rebuildIfStale asks first, answerable without an embedder:
  *  callers use it to skip loading one at all. Same abstention on an
  *  unverifiable (`null`) identity as rebuildIfStale itself. */
@@ -126,16 +133,35 @@ export async function rebuildIfStale(
     if (previousHashes[file.path] === newHash) continue; // unchanged — skip entirely
     if (shouldStop()) return { completed: false, filesEmbedded };
 
-    const embedded: Array<{ chunkId: string; embedding: number[] }> = [];
+    const alreadyEmbedded = store.resumePendingChunks(file.path, newHash);
+    const embedded: EmbeddedChunk[] = [];
+    let unsaved: EmbeddedChunk[] = [];
+    const saveProgress = (): void => {
+      store.savePendingChunks(file.path, newHash, unsaved);
+      unsaved = [];
+    };
+
     for (const chunk of await chunkFn(file.path, file.content)) {
-      if (shouldStop()) return { completed: false, filesEmbedded };
-      embedded.push({ chunkId: chunk.chunkId, embedding: await embed(chunk.text) });
+      const resumed = alreadyEmbedded.get(chunk.chunkId);
+      if (resumed !== undefined) {
+        embedded.push({ chunkId: chunk.chunkId, embedding: resumed });
+        continue;
+      }
+      if (shouldStop()) {
+        saveProgress();
+        return { completed: false, filesEmbedded };
+      }
+      const fresh = { chunkId: chunk.chunkId, embedding: await embed(chunk.text) };
+      embedded.push(fresh);
+      unsaved.push(fresh);
+      if (unsaved.length >= PROGRESS_BATCH_SIZE) saveProgress();
     }
     store.replaceFileChunks(file.path, embedded, newHash);
     filesEmbedded += 1;
   }
 
   store.setFingerprint(fingerprint);
+  store.discardPendingChunks();
   return { completed: true, filesEmbedded };
 }
 

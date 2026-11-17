@@ -83,6 +83,12 @@ export class VectorStore {
         path TEXT PRIMARY KEY,
         hash TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS pending_chunks (
+        chunk_id TEXT PRIMARY KEY,
+        source_path TEXT NOT NULL,
+        file_hash TEXT NOT NULL,
+        embedding TEXT NOT NULL
+      );
     `);
   }
 
@@ -125,6 +131,7 @@ export class VectorStore {
     this.db.exec("DELETE FROM vectors");
     this.db.exec("DELETE FROM file_hashes");
     this.db.exec("DELETE FROM meta");
+    this.db.exec("DELETE FROM pending_chunks");
   }
 
   /** Removes every chunk belonging to one source file — both the bare
@@ -144,11 +151,48 @@ export class VectorStore {
       this.deleteChunksForSourcePath(sourcePath);
       for (const chunk of chunks) this.upsert(chunk.chunkId, chunk.embedding);
       this.setFileHash(sourcePath, hash);
+      this.db.prepare("DELETE FROM pending_chunks WHERE source_path = ?").run(sourcePath);
       this.db.exec("COMMIT");
     } catch (err) {
       this.db.exec("ROLLBACK");
       throw err;
     }
+  }
+
+  /** Embeddings of a file whose rebuild was cut short, kept OUT of the
+   *  searchable index until the whole file is ready (see replaceFileChunks).
+   *  What was embedded for another version of the file is dropped: chunk
+   *  ids are positional, the same id would carry different text. */
+  resumePendingChunks(sourcePath: string, fileHash: string): Map<string, number[]> {
+    this.db.prepare("DELETE FROM pending_chunks WHERE source_path = ? AND file_hash <> ?").run(sourcePath, fileHash);
+    const rows = this.db
+      .prepare("SELECT chunk_id, embedding FROM pending_chunks WHERE source_path = ?")
+      .all(sourcePath) as Array<{ chunk_id: string; embedding: string }>;
+    return new Map(rows.map((r) => [r.chunk_id, JSON.parse(r.embedding) as number[]]));
+  }
+
+  savePendingChunks(sourcePath: string, fileHash: string, chunks: Array<{ chunkId: string; embedding: number[] }>): void {
+    if (chunks.length === 0) return;
+    const insert = this.db.prepare(
+      "INSERT INTO pending_chunks (chunk_id, source_path, file_hash, embedding) VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT(chunk_id) DO UPDATE SET source_path = excluded.source_path, file_hash = excluded.file_hash, embedding = excluded.embedding",
+    );
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const chunk of chunks) insert.run(chunk.chunkId, sourcePath, fileHash, JSON.stringify(chunk.embedding));
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  discardPendingChunks(): void {
+    this.db.exec("DELETE FROM pending_chunks");
+  }
+
+  pendingChunkCount(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM pending_chunks").get() as { n: number }).n;
   }
 
   /** path -> content hash, for every source file currently indexed —
