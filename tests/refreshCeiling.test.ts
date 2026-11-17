@@ -114,12 +114,15 @@ describe("recordRefreshRun", () => {
   });
 
   it("ne grossit pas sans fin : au-delà de 500 lignes, seules les plus récentes restent", () => {
-    for (let i = 0; i < 520; i++) recordRefreshRun(pluginDataDir, { ...run, filesEmbedded: i });
+    const fiveHundredOldLines = Array.from({ length: 500 }, (_, i) => `ancienne ligne ${i}\n`).join("");
+    writeFileSync(refreshLogPath(pluginDataDir), fiveHundredOldLines, "utf8");
+
+    recordRefreshRun(pluginDataDir, { ...run, filesEmbedded: 7 });
 
     const lines = readFileSync(refreshLogPath(pluginDataDir), "utf8").trimEnd().split("\n");
-
-    expect(lines.length).toBeLessThanOrEqual(500);
-    expect(lines.at(-1)).toContain(" 519 fichier(s) ");
+    expect(lines.length).toBeLessThan(500);
+    expect(lines[0]).not.toBe("ancienne ligne 0");
+    expect(lines.at(-1)).toContain(" 7 fichier(s) ");
   });
 
   it("ne lève jamais : la trace est un bonus", () => {

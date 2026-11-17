@@ -121,6 +121,28 @@ correctness-critical, and the one failure mode (two machines racing to write it 
 same instant) just leaves one machine's timestamp a session stale, which self-corrects the next
 time that machine starts a session.
 
+## Index refresh with several sessions open (17/11)
+
+The index is rebuilt by a hook at every end of turn (`Stop`, asynchronous). Measured on a real
+machine with seven sessions open: each one started its own refresh, each refresh re-embedded the
+same 693 KB file (2,110 chunks, 170 s alone, on every core), and the hook's `timeout` does not
+kill an asynchronous process. Six refreshes of 600 MB ran side by side. Three rules since 0.1.15:
+
+- **One refresh per machine.** A lock file in the plugin data directory (PID and timestamp); a
+  second launch exits at once with code 0. It is not the hub lock, which guards git operations
+  and must stay short.
+- **A ceiling of its own.** A refresh stops by itself after `refreshMaxSeconds` (local config,
+  default 300), between two chunks, and is killed 60 s later if a synchronous step holds it.
+  A file is swapped into the index in one transaction, and what was already embedded for an
+  unfinished file waits outside the searchable index, so the next launch resumes instead of
+  starting over. Without that, a file slower than the ceiling would never get indexed.
+- **Nothing loaded for nothing.** An unchanged corpus is detected before the embedding library is
+  even imported: 0.45 s instead of 1.3 to 1.6 s, at every end of turn.
+
+Each launch leaves a line in `refresh-index.log` (plugin data directory) with its outcome, its
+duration and the plugin folder it ran from, which is the only reliable way to tell which plugin
+version a long-lived session is really running.
+
 ## Known limitations
 
 - **`SessionEnd` sync is best-effort, not guaranteed.** The hook Claude Code calls at session end
