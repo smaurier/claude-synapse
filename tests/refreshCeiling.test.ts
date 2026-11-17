@@ -102,14 +102,14 @@ describe("recordRefreshRun", () => {
     outcome: "terminé" as const,
     durationMs: 170_234,
     filesEmbedded: 1,
-    pluginRoot: "C:/Users/x/.claude/plugins/cache/synapse/synapse/0.1.15",
+    pluginRoot: "/plugins/cache/synapse/synapse/0.1.15",
   };
 
   it("laisse une ligne datée avec l'issue, la durée, le PID et le dossier de la version qui a tourné", () => {
     recordRefreshRun(pluginDataDir, run, new Date("2026-11-17T18:14:00.000Z"), 4242);
 
     expect(readFileSync(refreshLogPath(pluginDataDir), "utf8")).toBe(
-      "2026-11-17T18:14:00.000Z pid 4242 terminé 170.2 s 1 fichier(s) C:/Users/x/.claude/plugins/cache/synapse/synapse/0.1.15\n",
+      "2026-11-17T18:14:00.000Z pid 4242 terminé 170.2 s 1 fichier(s) /plugins/cache/synapse/synapse/0.1.15\n",
     );
   });
 
