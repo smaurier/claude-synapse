@@ -58,6 +58,24 @@ export declare class VectorStore {
      *  files). Used by incremental rebuilds before re-embedding a changed
      *  file, and when a file disappears from the corpus entirely. */
     deleteChunksForSourcePath(sourcePath: string): void;
+    /** Swaps a source file's chunks and content hash in ONE transaction: a
+     *  refresh stopped or killed halfway leaves that file exactly as it was
+     *  indexed before, never half-deleted (17/11/2026). */
+    replaceFileChunks(sourcePath: string, chunks: Array<{
+        chunkId: string;
+        embedding: number[];
+    }>, hash: string): void;
+    /** Embeddings of a file whose rebuild was cut short, kept OUT of the
+     *  searchable index until the whole file is ready (see replaceFileChunks).
+     *  What was embedded for another version of the file is dropped: chunk
+     *  ids are positional, the same id would carry different text. */
+    resumePendingChunks(sourcePath: string, fileHash: string): Map<string, number[]>;
+    savePendingChunks(sourcePath: string, fileHash: string, chunks: Array<{
+        chunkId: string;
+        embedding: number[];
+    }>): void;
+    discardPendingChunks(): void;
+    pendingChunkCount(): number;
     /** path -> content hash, for every source file currently indexed —
      *  the incremental rebuild's basis for "what changed since last time". */
     getFileHashes(): Record<string, string>;

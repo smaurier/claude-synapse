@@ -10,6 +10,7 @@
  * were a memory file.
  */
 import { type SearchResult } from "./store.js";
+import { type RebuildOutcome } from "./search.js";
 export interface SearchHubOptions {
     /** `false` : interroger l'index tel quel, sans jamais le reconstruire.
      *  Réservé aux appelants à budget de temps borné (hook UserPromptSubmit) ;
@@ -19,7 +20,14 @@ export interface SearchHubOptions {
     refreshIndex?: boolean;
 }
 export declare function searchHub(hubClonePath: string, query: string, topK?: number, options?: SearchHubOptions): Promise<SearchResult[]>;
+export interface RefreshHubIndexOptions {
+    /** See rebuildIfStale: cuts the rebuild short, keeps what is finished. */
+    shouldStop?: () => boolean;
+    /** Runs once, only when something really has to be embedded, before the
+     *  embedding library is loaded: where the caller points the model cache. */
+    beforeEmbedding?: () => void | Promise<void>;
+}
 /** Rebuilds the hub's index if the corpus changed since last time, without
  *  running a search — what the SessionStart refresh hook calls. Same store
  *  location and staleness rule as searchHub(), just without a query. */
-export declare function refreshHubIndex(hubClonePath: string): Promise<void>;
+export declare function refreshHubIndex(hubClonePath: string, options?: RefreshHubIndexOptions): Promise<RebuildOutcome>;

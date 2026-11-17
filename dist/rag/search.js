@@ -21,34 +21,24 @@
  */
 import { chunkFile, sourcePathFromChunkId } from "./chunk.js";
 import { computeCorpusFingerprint, hashFileContent } from "./hash.js";
-/** Rebuilds only what changed since the last build. The whole-corpus
- *  fingerprint is still the fast first check (nothing changed at all ->
- *  skip everything, no per-file diffing needed); once that says something
- *  did change, per-file hashes narrow the actual work to added/modified
- *  files, and remove chunks for files that disappeared from the corpus.
- *  Unchanged files are never re-chunked or re-embedded.
- *
- *  `embedderIdentity` is required, not optional-with-a-default — backlog
- *  #50 (16/10/2026): pinning the MODEL id (ensurePinnedEmbeddingModel) was
- *  never the full story, because nothing pinned the @huggingface/
- *  transformers LIBRARY version that actually produces the vectors. A
- *  default that silently skipped the check would be a guard that rots the
- *  first time someone forgets to pass it; every real caller (production.ts)
- *  passes the real identity, tests pass an explicit fake one.
- *
- *  It is typed `string | null` on purpose, not just `string`: `null` means
- *  "the caller could not verify the identity this run" (see
- *  embeddingProvider.ts's getEmbedderIdentity — an unreadable package.json,
- *  not an absence of pinning). Found during review 16/10/2026: a machine
- *  where that read fails INTERMITTENTLY (partially restored node_modules,
- *  a permissions hiccup, an antivirus holding the file) would otherwise see
- *  the identity flip between a real version and a placeholder on every
- *  run, and EACH flip would clear the store and re-embed the whole corpus
- *  — far more expensive than the drift this guard exists to catch. A guard
- *  that cannot verify must say nothing, not guess; abstaining on `null` is
- *  not a regression, it is exactly today's behaviour (no guard at all) in
- *  a case that should be vanishingly rare. */
-export async function rebuildIfStale(store, corpus, embed, embedderIdentity, chunkFn = chunkFile) {
+export function stopAfter(maxMs, now = Date.now) {
+    const deadline = now() + maxMs;
+    return () => now() >= deadline;
+}
+const neverStop = () => false;
+/** How many freshly embedded chunks may be lost to a hard kill. At 58 ms per
+ *  chunk (measured 17/11/2026) a batch is about two seconds of work, and one
+ *  transaction instead of thirty-two. */
+const PROGRESS_BATCH_SIZE = 32;
+/** The question rebuildIfStale asks first, answerable without an embedder:
+ *  callers use it to skip loading one at all. Same abstention on an
+ *  unverifiable (`null`) identity as rebuildIfStale itself. */
+export function isIndexCurrent(store, corpus, embedderIdentity) {
+    if (embedderIdentity !== null && store.getEmbedderIdentity() !== embedderIdentity)
+        return false;
+    return store.getFingerprint() === computeCorpusFingerprint(corpus);
+}
+export async function rebuildIfStale(store, corpus, embed, embedderIdentity, chunkFn = chunkFile, shouldStop = neverStop) {
     // MUST run before the fingerprint early-return below, not after. Folding
     // the identity into computeCorpusFingerprint() instead was the design
     // first considered and rejected (16/10/2026): if the corpus is
@@ -70,7 +60,7 @@ export async function rebuildIfStale(store, corpus, embed, embedderIdentity, chu
     }
     const fingerprint = computeCorpusFingerprint(corpus);
     if (store.getFingerprint() === fingerprint)
-        return;
+        return { completed: true, filesEmbedded: 0 };
     const previousHashes = store.getFileHashes();
     const currentPaths = new Set(corpus.map((f) => f.path));
     for (const path of Object.keys(previousHashes)) {
@@ -79,17 +69,42 @@ export async function rebuildIfStale(store, corpus, embed, embedderIdentity, chu
             store.deleteFileHash(path);
         }
     }
+    let filesEmbedded = 0;
     for (const file of corpus) {
         const newHash = hashFileContent(file.content);
         if (previousHashes[file.path] === newHash)
             continue; // unchanged — skip entirely
-        store.deleteChunksForSourcePath(file.path); // clear stale chunks if this file existed before
+        if (shouldStop())
+            return { completed: false, filesEmbedded };
+        const alreadyEmbedded = store.resumePendingChunks(file.path, newHash);
+        const embedded = [];
+        let unsaved = [];
+        const saveProgress = () => {
+            store.savePendingChunks(file.path, newHash, unsaved);
+            unsaved = [];
+        };
         for (const chunk of await chunkFn(file.path, file.content)) {
-            store.upsert(chunk.chunkId, await embed(chunk.text));
+            const resumed = alreadyEmbedded.get(chunk.chunkId);
+            if (resumed !== undefined) {
+                embedded.push({ chunkId: chunk.chunkId, embedding: resumed });
+                continue;
+            }
+            if (shouldStop()) {
+                saveProgress();
+                return { completed: false, filesEmbedded };
+            }
+            const fresh = { chunkId: chunk.chunkId, embedding: await embed(chunk.text) };
+            embedded.push(fresh);
+            unsaved.push(fresh);
+            if (unsaved.length >= PROGRESS_BATCH_SIZE)
+                saveProgress();
         }
-        store.setFileHash(file.path, newHash);
+        store.replaceFileChunks(file.path, embedded, newHash);
+        filesEmbedded += 1;
     }
     store.setFingerprint(fingerprint);
+    store.discardPendingChunks();
+    return { completed: true, filesEmbedded };
 }
 /** Searches at chunk granularity, then collapses back to one result per
  *  source file (keeping each file's best-scoring chunk) — callers care

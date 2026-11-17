@@ -49,7 +49,7 @@
  */
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, recordMachineSeen } from "../config/config.js";
 import { refreshHubIndex } from "../rag/searchHub.js";
-import { defaultModelCacheDir, useModelCacheDir } from "../rag/embeddingProvider.js";
+import { defaultModelCacheDir } from "../rag/embedderIdentity.js";
 import { ensureCurrentProjectLinked, projectMemoryLinkPath } from "./refreshProjects.js";
 import { runSynapseDoctor } from "./synapseDoctor.js";
 /** Shared by every daemon-less periodic trigger in this file (audit, ideas
@@ -72,25 +72,35 @@ export function isAuditOverdue(lastAuditAt, cadenceDays) {
 export function isIdeasRefreshOverdue(lastIdeasRefreshAt, cadenceDays) {
     return isCadenceOverdue(lastIdeasRefreshAt, cadenceDays);
 }
-export async function runRefreshIndex(pluginDataDir, projectDir, pluginRoot) {
+export async function runRefreshIndex(pluginDataDir, projectDir, pluginRoot, shouldStop = () => false) {
     const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
-    useModelCacheDir(defaultModelCacheDir(pluginDataDir));
     recordMachineSeen(localConfig.hubClonePath, localConfig.machineId);
     if (projectDir) {
         ensureCurrentProjectLinked(projectDir, localConfig.hubClonePath);
     }
-    await refreshHubIndex(localConfig.hubClonePath);
+    const { completed: indexCompleted, filesEmbedded } = await refreshHubIndex(localConfig.hubClonePath, {
+        shouldStop,
+        // Imported here, not at the top of the file: embeddingProvider.js loads
+        // the embedding library, which an unchanged corpus must never pay for.
+        beforeEmbedding: async () => {
+            const { useModelCacheDir } = await import("../rag/embeddingProvider.js");
+            useModelCacheDir(defaultModelCacheDir(pluginDataDir));
+        },
+    });
+    const index = { indexCompleted, filesEmbedded };
     // Read once, shared by both triggers below. Unlike the audit, the ideas-refresh
     // signal doesn't need projectDir (no linkPath to derive — it never runs anything
     // itself, see the file-level comment), so it's checked unconditionally.
     const shared = readSharedConfig(localConfig.hubClonePath);
     const ideasRefreshDue = isIdeasRefreshOverdue(shared.lastIdeasRefreshAt, shared.ideasRefreshCadenceDays);
-    if (!projectDir)
-        return { auditTriggered: false, ideasRefreshDue };
+    // An audit on top of a refresh that already ran out of time would only
+    // push the process further past its ceiling: it waits for the next run.
+    if (!projectDir || !indexCompleted)
+        return { ...index, auditTriggered: false, ideasRefreshDue };
     if (!isAuditOverdue(shared.lastAuditAt, shared.auditCadenceDays)) {
-        return { auditTriggered: false, ideasRefreshDue };
+        return { ...index, auditTriggered: false, ideasRefreshDue };
     }
     const auditReport = await runSynapseDoctor(pluginDataDir, projectMemoryLinkPath(projectDir), pluginRoot);
-    return { auditTriggered: true, auditReport, ideasRefreshDue };
+    return { ...index, auditTriggered: true, auditReport, ideasRefreshDue };
 }
 //# sourceMappingURL=refreshIndex.js.map

@@ -51,7 +51,18 @@ export type ChunkFn = (path: string, content: string) => Chunk[] | Promise<Chunk
  *  that cannot verify must say nothing, not guess; abstaining on `null` is
  *  not a regression, it is exactly today's behaviour (no guard at all) in
  *  a case that should be vanishingly rare. */
-export declare function rebuildIfStale(store: VectorStore, corpus: CorpusFile[], embed: EmbeddingProvider, embedderIdentity: string | null, chunkFn?: ChunkFn): Promise<void>;
+export interface RebuildOutcome {
+    /** False when `shouldStop` cut the rebuild short: finished files are kept,
+     *  the corpus fingerprint is not stamped, the next run picks up the rest. */
+    completed: boolean;
+    filesEmbedded: number;
+}
+export declare function stopAfter(maxMs: number, now?: () => number): () => boolean;
+/** The question rebuildIfStale asks first, answerable without an embedder:
+ *  callers use it to skip loading one at all. Same abstention on an
+ *  unverifiable (`null`) identity as rebuildIfStale itself. */
+export declare function isIndexCurrent(store: VectorStore, corpus: CorpusFile[], embedderIdentity: string | null): boolean;
+export declare function rebuildIfStale(store: VectorStore, corpus: CorpusFile[], embed: EmbeddingProvider, embedderIdentity: string | null, chunkFn?: ChunkFn, shouldStop?: () => boolean): Promise<RebuildOutcome>;
 /** Searches at chunk granularity, then collapses back to one result per
  *  source file (keeping each file's best-scoring chunk) — callers care
  *  about "which memory file is relevant", not which internal slice of it

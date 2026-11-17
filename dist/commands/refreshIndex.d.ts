@@ -49,6 +49,9 @@
  */
 import { type SynapseDoctorReport } from "./synapseDoctor.js";
 export interface RefreshIndexResult {
+    /** False when the time ceiling cut the rebuild short (see refreshCeiling.ts). */
+    indexCompleted: boolean;
+    filesEmbedded: number;
     auditTriggered: boolean;
     auditReport?: SynapseDoctorReport;
     /** True when the ideas-synthesis cadence (SharedConfig.ideasRefreshCadenceDays)
@@ -65,4 +68,4 @@ export interface RefreshIndexResult {
 export declare function isCadenceOverdue(lastDoneAt: string | null, cadenceDays: number): boolean;
 export declare function isAuditOverdue(lastAuditAt: string | null, cadenceDays: number): boolean;
 export declare function isIdeasRefreshOverdue(lastIdeasRefreshAt: string | null, cadenceDays: number): boolean;
-export declare function runRefreshIndex(pluginDataDir: string, projectDir: string | undefined, pluginRoot: string): Promise<RefreshIndexResult>;
+export declare function runRefreshIndex(pluginDataDir: string, projectDir: string | undefined, pluginRoot: string, shouldStop?: () => boolean): Promise<RefreshIndexResult>;
