@@ -16,9 +16,10 @@
  * `/brain-search` command, SessionStart refresh) should go through here, not
  * through search.ts directly.
  */
+import { type RebuildOutcome } from "./search.js";
 import type { CorpusFile } from "./hash.js";
 import type { SearchResult, VectorStore } from "./store.js";
-export declare function rebuildIndexIfStale(store: VectorStore, corpus: CorpusFile[]): Promise<void>;
+export declare function rebuildIndexIfStale(store: VectorStore, corpus: CorpusFile[], shouldStop?: () => boolean): Promise<RebuildOutcome>;
 export declare function synapseSearch(store: VectorStore, corpus: CorpusFile[], query: string, topK?: number): Promise<SearchResult[]>;
 /** Lecture seule : interroge l'index tel quel, sans reconstruction — pour
  *  les appelants à budget de temps borné (le hook UserPromptSubmit, 15 s).

@@ -16,6 +16,9 @@
 import { existsSync } from "node:fs";
 import { defaultLocalConfigPath } from "../config/config.js";
 import { ensureDependencies, resolvePluginRoot } from "../config/dependencies.js";
+import { releaseRefreshLock, withRefreshLock } from "../lock/refreshLock.js";
+import { stopAfter } from "../rag/search.js";
+import { armHardStop, recordRefreshRun, refreshLockMaxAgeMs, refreshMaxMs } from "./refreshCeiling.js";
 import { runRefreshIndex } from "./refreshIndex.js";
 async function main() {
     const [pluginDataDir, projectDir] = process.argv.slice(2);
@@ -24,11 +27,6 @@ async function main() {
         process.exitCode = 1;
         return;
     }
-    // A plain `git clone` install (see dependencies.ts) never runs `npm
-    // install` — first real invocation of this hook self-heals it. Cheap
-    // no-op check on every session after the first.
-    const pluginRoot = resolvePluginRoot(import.meta.url);
-    ensureDependencies(pluginRoot);
     // Checked explicitly rather than pattern-matching readLocalConfig's error
     // message: a string match would also silently swallow a genuine path
     // resolution bug that happens to produce a similar-looking error, hiding
@@ -36,8 +34,34 @@ async function main() {
     if (!existsSync(defaultLocalConfigPath(pluginDataDir))) {
         return; // not initialized yet — normal, nothing to refresh
     }
+    const startedAt = Date.now();
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    const maxMs = refreshMaxMs(pluginDataDir);
+    const trace = (outcome, filesEmbedded = 0) => recordRefreshRun(pluginDataDir, { outcome, durationMs: Date.now() - startedAt, filesEmbedded, pluginRoot });
     try {
-        const result = await runRefreshIndex(pluginDataDir, projectDir, pluginRoot);
+        const run = await withRefreshLock(pluginDataDir, refreshLockMaxAgeMs(maxMs), async () => {
+            armHardStop(maxMs, () => {
+                trace("arrêt forcé");
+                releaseRefreshLock(pluginDataDir);
+            });
+            // A plain `git clone` install (see dependencies.ts) never runs `npm
+            // install` — first real invocation of this hook self-heals it. Cheap
+            // no-op check on every session after the first. Under the lock: two
+            // sessions must not run `npm install` in the same folder either.
+            ensureDependencies(pluginRoot);
+            return runRefreshIndex(pluginDataDir, projectDir, pluginRoot, stopAfter(maxMs));
+        });
+        if (!run.ran) {
+            const holder = run.heldByPid === null ? "un autre processus" : `le processus ${run.heldByPid}`;
+            console.log(`synapse: un rafraîchissement de l'index tourne déjà (${holder}, depuis ${run.since}), rien à faire.`);
+            trace("déjà en cours");
+            return;
+        }
+        const result = run.value;
+        trace(result.indexCompleted ? "terminé" : "interrompu au plafond", result.filesEmbedded);
+        if (!result.indexCompleted) {
+            console.log(`synapse: rafraîchissement de l'index interrompu au plafond de ${maxMs / 1000} s, la suite au prochain lancement.`);
+        }
         if (result.auditTriggered && result.auditReport) {
             const r = result.auditReport;
             console.log(`synapse: audit périodique déclenché (cadence dépassée) — ${r.fileCount} fichiers, ${r.findings.length} signalement(s), ${r.duplicateCandidates.length} doublon(s) probable(s).`);
@@ -47,6 +71,7 @@ async function main() {
         }
     }
     catch (err) {
+        trace("échec");
         const message = err instanceof Error ? err.message : String(err);
         console.error(`synapse: échec du rafraîchissement de l'index — ${message}`);
         process.exitCode = 1;

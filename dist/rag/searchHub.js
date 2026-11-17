@@ -12,9 +12,13 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadHubCorpus } from "./corpus.js";
-import { synapseSearch, synapseSearchReadOnly, rebuildIndexIfStale } from "./production.js";
-import { ensurePinnedEmbeddingModel } from "./embeddingProvider.js";
+import { ensurePinnedEmbeddingModel, getEmbedderIdentity } from "./embedderIdentity.js";
 import { VectorStore } from "./store.js";
+import { isIndexCurrent } from "./search.js";
+// production.js pulls in @huggingface/transformers (0.75 to 1 s to import,
+// measured 17/11/2026). Loaded on demand so that a refresh which finds the
+// corpus unchanged never pays for it.
+const loadEmbeddingPipeline = () => import("./production.js");
 function openHubStore(hubClonePath) {
     const dbDir = join(hubClonePath, ".synapse");
     mkdirSync(dbDir, { recursive: true });
@@ -26,6 +30,7 @@ export async function searchHub(hubClonePath, query, topK = 10, options = {}) {
     const store = openHubStore(hubClonePath);
     try {
         const corpus = loadHubCorpus(hubClonePath);
+        const { synapseSearch, synapseSearchReadOnly } = await loadEmbeddingPipeline();
         return refreshIndex
             ? await synapseSearch(store, corpus, query, topK)
             : await synapseSearchReadOnly(store, corpus, query, topK);
@@ -37,12 +42,16 @@ export async function searchHub(hubClonePath, query, topK = 10, options = {}) {
 /** Rebuilds the hub's index if the corpus changed since last time, without
  *  running a search — what the SessionStart refresh hook calls. Same store
  *  location and staleness rule as searchHub(), just without a query. */
-export async function refreshHubIndex(hubClonePath) {
+export async function refreshHubIndex(hubClonePath, options = {}) {
     ensurePinnedEmbeddingModel(hubClonePath);
     const store = openHubStore(hubClonePath);
     try {
         const corpus = loadHubCorpus(hubClonePath);
-        await rebuildIndexIfStale(store, corpus);
+        if (isIndexCurrent(store, corpus, getEmbedderIdentity()))
+            return { completed: true, filesEmbedded: 0 };
+        await options.beforeEmbedding?.();
+        const { rebuildIndexIfStale } = await loadEmbeddingPipeline();
+        return await rebuildIndexIfStale(store, corpus, options.shouldStop);
     }
     finally {
         store.close();

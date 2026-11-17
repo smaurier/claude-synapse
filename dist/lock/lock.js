@@ -45,7 +45,7 @@ function tryCreateLock(hubDir, machineId, pid, at) {
         throw err;
     }
 }
-function isProcessAlive(pid) {
+export function isProcessAlive(pid) {
     try {
         process.kill(pid, 0);
         return true;

@@ -19,6 +19,7 @@ export type AcquireResult = {
     heldBy: string;
     since: string;
 };
+export declare function isProcessAlive(pid: number): boolean;
 /**
  * Attempts to acquire the whole-repo lock.
  * - No lock present -> acquired (atomically).

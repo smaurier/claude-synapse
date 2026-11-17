@@ -97,6 +97,9 @@ export interface LocalConfig {
      *  on every LocalConfig written before this field existed, and on any
      *  machine that never registered a project. */
     knownProjectRoots?: Record<string, string>;
+    /** Plafond de durée d'un rafraîchissement de l'index, en secondes (voir
+     *  refreshCeiling.ts). Local : la vitesse d'embedding est celle du poste. */
+    refreshMaxSeconds?: number;
 }
 export declare function readLocalConfig(path: string): LocalConfig;
 export declare function writeLocalConfig(path: string, config: LocalConfig): void;

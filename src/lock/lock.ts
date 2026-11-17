@@ -57,7 +57,7 @@ function tryCreateLock(hubDir: string, machineId: string, pid: number, at: Date)
   }
 }
 
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
