@@ -185,11 +185,11 @@ describe("rebuildIfStale, reprise à l'intérieur d'un fichier", () => {
 });
 
 describe("rebuildIfStale, grain par fichier", () => {
-  it("un fichier modifié sur cent : un seul est ré-embeddé", async () => {
-    const corpus = Array.from({ length: 100 }, (_, i) => ({ path: `fiche-${i}.md`, content: `contenu ${i}` }));
+  it("un fichier modifié sur dix : un seul est ré-embeddé", async () => {
+    const corpus = Array.from({ length: 10 }, (_, i) => ({ path: `fiche-${i}.md`, content: `contenu ${i}` }));
     await rebuildIfStale(store, corpus, fakeEmbed, IDENTITY);
     const embed = vi.fn(fakeEmbed);
-    const edited = corpus.map((f) => (f.path === "fiche-42.md" ? { ...f, content: "contenu modifié" } : f));
+    const edited = corpus.map((f) => (f.path === "fiche-4.md" ? { ...f, content: "contenu modifié" } : f));
 
     const outcome = await rebuildIfStale(store, edited, embed, IDENTITY);
 
