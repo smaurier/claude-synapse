@@ -31,4 +31,42 @@ describe("hooks.json — répartition index / rappel", () => {
     expect(refresh?.async).toBe(true);
     expect(refresh?.timeout).toBeGreaterThanOrEqual(120);
   });
+
+  // 17/11/2026, correctif 0.1.15. Le verrou et le plafond vivent dans
+  // refreshIndexCli : ce contrat garantit que la reconstruction passe par lui,
+  // une seule fois par fin de tour, et jamais par un hook qui bloque le prompt
+  // (retour en arrière vers le rappel UserPromptSubmit, cf. correctif 0.1.7).
+  it("le hook Stop lance refreshIndexCli, une seule fois, et rien d'autre", () => {
+    const stop = commandsOf("Stop");
+
+    expect(stop).toHaveLength(1);
+    expect(stop[0]?.command).toContain("dist/commands/refreshIndexCli.js");
+    expect(stop[0]?.async).toBe(true);
+  });
+
+  it("UserPromptSubmit ne reconstruit jamais l'index", () => {
+    const commands = commandsOf("UserPromptSubmit").map((h) => h.command);
+
+    expect(commands).toHaveLength(1);
+    expect(commands.join(" ")).not.toContain("refreshIndexCli");
+  });
+
+  it("hors SessionStart, tout hook qui reconstruit l'index est asynchrone", () => {
+    const blockingRebuilds = Object.keys(hooks.hooks)
+      .filter((event) => event !== "SessionStart")
+      .flatMap((event) => commandsOf(event).map((h) => ({ event, ...h })))
+      .filter((h) => h.command.includes("refreshIndexCli") && h.async !== true)
+      .map((h) => h.event);
+
+    expect(blockingRebuilds).toEqual([]);
+  });
+
+  it("refreshIndexCli reçoit le dossier de données du plugin, où vit son verrou", () => {
+    const rebuilds = Object.keys(hooks.hooks)
+      .flatMap((event) => commandsOf(event))
+      .filter((h) => h.command.includes("refreshIndexCli"));
+
+    expect(rebuilds.length).toBeGreaterThan(0);
+    for (const h of rebuilds) expect(h.command).toContain('"${CLAUDE_PLUGIN_DATA}"');
+  });
 });
