@@ -50,7 +50,7 @@
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, recordMachineSeen } from "../config/config.js";
 import { refreshHubIndex } from "../rag/searchHub.js";
-import { defaultModelCacheDir, useModelCacheDir } from "../rag/embeddingProvider.js";
+import { defaultModelCacheDir } from "../rag/embedderIdentity.js";
 import { ensureCurrentProjectLinked, projectMemoryLinkPath } from "./refreshProjects.js";
 import { runSynapseDoctor, type SynapseDoctorReport } from "./synapseDoctor.js";
 
@@ -91,15 +91,22 @@ export async function runRefreshIndex(
   pluginDataDir: string,
   projectDir: string | undefined,
   pluginRoot: string,
-  shouldStop?: () => boolean,
+  shouldStop: () => boolean = () => false,
 ): Promise<RefreshIndexResult> {
   const localConfig = readLocalConfig(defaultLocalConfigPath(pluginDataDir));
-  useModelCacheDir(defaultModelCacheDir(pluginDataDir));
   recordMachineSeen(localConfig.hubClonePath, localConfig.machineId);
   if (projectDir) {
     ensureCurrentProjectLinked(projectDir, localConfig.hubClonePath);
   }
-  const { completed: indexCompleted, filesEmbedded } = await refreshHubIndex(localConfig.hubClonePath, shouldStop);
+  const { completed: indexCompleted, filesEmbedded } = await refreshHubIndex(localConfig.hubClonePath, {
+    shouldStop,
+    // Imported here, not at the top of the file: embeddingProvider.js loads
+    // the embedding library, which an unchanged corpus must never pay for.
+    beforeEmbedding: async () => {
+      const { useModelCacheDir } = await import("../rag/embeddingProvider.js");
+      useModelCacheDir(defaultModelCacheDir(pluginDataDir));
+    },
+  });
   const index = { indexCompleted, filesEmbedded };
 
   // Read once, shared by both triggers below. Unlike the audit, the ideas-refresh

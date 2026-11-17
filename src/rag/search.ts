@@ -71,6 +71,14 @@ export function stopAfter(maxMs: number, now: () => number = Date.now): () => bo
 
 const neverStop = (): boolean => false;
 
+/** The question rebuildIfStale asks first, answerable without an embedder:
+ *  callers use it to skip loading one at all. Same abstention on an
+ *  unverifiable (`null`) identity as rebuildIfStale itself. */
+export function isIndexCurrent(store: VectorStore, corpus: CorpusFile[], embedderIdentity: string | null): boolean {
+  if (embedderIdentity !== null && store.getEmbedderIdentity() !== embedderIdentity) return false;
+  return store.getFingerprint() === computeCorpusFingerprint(corpus);
+}
+
 export async function rebuildIfStale(
   store: VectorStore,
   corpus: CorpusFile[],

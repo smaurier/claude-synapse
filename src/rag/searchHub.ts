@@ -13,10 +13,14 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadHubCorpus } from "./corpus.js";
-import { synapseSearch, synapseSearchReadOnly, rebuildIndexIfStale } from "./production.js";
-import { ensurePinnedEmbeddingModel } from "./embeddingProvider.js";
+import { ensurePinnedEmbeddingModel, getEmbedderIdentity } from "./embedderIdentity.js";
 import { VectorStore, type SearchResult } from "./store.js";
-import type { RebuildOutcome } from "./search.js";
+import { isIndexCurrent, type RebuildOutcome } from "./search.js";
+
+// production.js pulls in @huggingface/transformers (0.75 to 1 s to import,
+// measured 17/11/2026). Loaded on demand so that a refresh which finds the
+// corpus unchanged never pays for it.
+const loadEmbeddingPipeline = (): Promise<typeof import("./production.js")> => import("./production.js");
 
 function openHubStore(hubClonePath: string): VectorStore {
   const dbDir = join(hubClonePath, ".synapse");
@@ -44,6 +48,7 @@ export async function searchHub(
   const store = openHubStore(hubClonePath);
   try {
     const corpus = loadHubCorpus(hubClonePath);
+    const { synapseSearch, synapseSearchReadOnly } = await loadEmbeddingPipeline();
     return refreshIndex
       ? await synapseSearch(store, corpus, query, topK)
       : await synapseSearchReadOnly(store, corpus, query, topK);
@@ -52,15 +57,27 @@ export async function searchHub(
   }
 }
 
+export interface RefreshHubIndexOptions {
+  /** See rebuildIfStale: cuts the rebuild short, keeps what is finished. */
+  shouldStop?: () => boolean;
+  /** Runs once, only when something really has to be embedded, before the
+   *  embedding library is loaded: where the caller points the model cache. */
+  beforeEmbedding?: () => void | Promise<void>;
+}
+
 /** Rebuilds the hub's index if the corpus changed since last time, without
  *  running a search — what the SessionStart refresh hook calls. Same store
  *  location and staleness rule as searchHub(), just without a query. */
-export async function refreshHubIndex(hubClonePath: string, shouldStop?: () => boolean): Promise<RebuildOutcome> {
+export async function refreshHubIndex(hubClonePath: string, options: RefreshHubIndexOptions = {}): Promise<RebuildOutcome> {
   ensurePinnedEmbeddingModel(hubClonePath);
   const store = openHubStore(hubClonePath);
   try {
     const corpus = loadHubCorpus(hubClonePath);
-    return await rebuildIndexIfStale(store, corpus, shouldStop);
+    if (isIndexCurrent(store, corpus, getEmbedderIdentity())) return { completed: true, filesEmbedded: 0 };
+
+    await options.beforeEmbedding?.();
+    const { rebuildIndexIfStale } = await loadEmbeddingPipeline();
+    return await rebuildIndexIfStale(store, corpus, options.shouldStop);
   } finally {
     store.close();
   }
