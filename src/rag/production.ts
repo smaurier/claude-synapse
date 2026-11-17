@@ -17,13 +17,17 @@
  * through search.ts directly.
  */
 
-import { rebuildIfStale, brainSearch, searchIndex } from "./search.js";
+import { rebuildIfStale, brainSearch, searchIndex, type RebuildOutcome } from "./search.js";
 import { chunkFileForEmbedding, embedLocal, getEmbedderIdentity } from "./embeddingProvider.js";
 import type { CorpusFile } from "./hash.js";
 import type { SearchResult, VectorStore } from "./store.js";
 
-export async function rebuildIndexIfStale(store: VectorStore, corpus: CorpusFile[]): Promise<void> {
-  await rebuildIfStale(store, corpus, embedLocal, getEmbedderIdentity(), chunkFileForEmbedding);
+export async function rebuildIndexIfStale(
+  store: VectorStore,
+  corpus: CorpusFile[],
+  shouldStop?: () => boolean,
+): Promise<RebuildOutcome> {
+  return rebuildIfStale(store, corpus, embedLocal, getEmbedderIdentity(), chunkFileForEmbedding, shouldStop);
 }
 
 export async function synapseSearch(

@@ -16,6 +16,7 @@ import { loadHubCorpus } from "./corpus.js";
 import { synapseSearch, synapseSearchReadOnly, rebuildIndexIfStale } from "./production.js";
 import { ensurePinnedEmbeddingModel } from "./embeddingProvider.js";
 import { VectorStore, type SearchResult } from "./store.js";
+import type { RebuildOutcome } from "./search.js";
 
 function openHubStore(hubClonePath: string): VectorStore {
   const dbDir = join(hubClonePath, ".synapse");
@@ -54,12 +55,12 @@ export async function searchHub(
 /** Rebuilds the hub's index if the corpus changed since last time, without
  *  running a search — what the SessionStart refresh hook calls. Same store
  *  location and staleness rule as searchHub(), just without a query. */
-export async function refreshHubIndex(hubClonePath: string): Promise<void> {
+export async function refreshHubIndex(hubClonePath: string, shouldStop?: () => boolean): Promise<RebuildOutcome> {
   ensurePinnedEmbeddingModel(hubClonePath);
   const store = openHubStore(hubClonePath);
   try {
     const corpus = loadHubCorpus(hubClonePath);
-    await rebuildIndexIfStale(store, corpus);
+    return await rebuildIndexIfStale(store, corpus, shouldStop);
   } finally {
     store.close();
   }

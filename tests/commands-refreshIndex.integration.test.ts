@@ -52,6 +52,37 @@ describeWithModel("runRefreshIndex", () => {
     expect(result.ideasRefreshDue).toBe(true); // lastIdeasRefreshAt was never set — overdue by definition, no projectDir needed
   }, 120_000);
 
+  it("dit que l'index est complet et combien de fichiers ont été refaits", async () => {
+    writeLocalConfig(join(pluginDataDir, "local-config.json"), {
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      hubClonePath: hubDir,
+      machineId: "test-machine",
+    });
+    writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
+
+    const result = await runRefreshIndex(pluginDataDir, undefined, pluginRootWithoutPackageJson);
+
+    expect(result).toMatchObject({ indexCompleted: true, filesEmbedded: 1 });
+  }, 120_000);
+
+  // 17/11/2026 : un refresh coupé par son plafond n'a plus de temps pour un
+  // audit, et ne doit surtout pas prétendre que l'index est à jour.
+  it("au plafond, rend la main sans audit et sans déclarer l'index complet", async () => {
+    writeLocalConfig(join(pluginDataDir, "local-config.json"), {
+      hubUrl: "git@github.com:example-user/my-hub.git",
+      hubClonePath: hubDir,
+      machineId: "test-machine",
+    });
+    writeFileSync(join(hubDir, "chat.md"), "Le chat dort sur le canapé.", "utf8");
+    const projectDir = join(root, "mon-projet");
+    mkdirSync(join(projectDir, ".claude"), { recursive: true });
+    const ceilingAlreadyReached = (): boolean => true;
+
+    const result = await runRefreshIndex(pluginDataDir, projectDir, pluginRootWithoutPackageJson, ceilingAlreadyReached);
+
+    expect(result).toMatchObject({ indexCompleted: false, filesEmbedded: 0, auditTriggered: false });
+  }, 120_000);
+
   // Ajoute 16/08 : registre des machines (SharedConfig.knownMachines),
   // mis a jour a chaque SessionStart, meme sans projectDir.
   it("records this machine in the device registry", async () => {

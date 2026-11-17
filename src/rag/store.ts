@@ -135,6 +135,22 @@ export class VectorStore {
     this.db.prepare("DELETE FROM vectors WHERE path = ? OR path LIKE ?").run(sourcePath, `${sourcePath}#%`);
   }
 
+  /** Swaps a source file's chunks and content hash in ONE transaction: a
+   *  refresh stopped or killed halfway leaves that file exactly as it was
+   *  indexed before, never half-deleted (17/11/2026). */
+  replaceFileChunks(sourcePath: string, chunks: Array<{ chunkId: string; embedding: number[] }>, hash: string): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.deleteChunksForSourcePath(sourcePath);
+      for (const chunk of chunks) this.upsert(chunk.chunkId, chunk.embedding);
+      this.setFileHash(sourcePath, hash);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
   /** path -> content hash, for every source file currently indexed —
    *  the incremental rebuild's basis for "what changed since last time". */
   getFileHashes(): Record<string, string> {

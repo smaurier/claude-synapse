@@ -57,13 +57,28 @@ export type ChunkFn = (path: string, content: string) => Chunk[] | Promise<Chunk
  *  that cannot verify must say nothing, not guess; abstaining on `null` is
  *  not a regression, it is exactly today's behaviour (no guard at all) in
  *  a case that should be vanishingly rare. */
+export interface RebuildOutcome {
+  /** False when `shouldStop` cut the rebuild short: finished files are kept,
+   *  the corpus fingerprint is not stamped, the next run picks up the rest. */
+  completed: boolean;
+  filesEmbedded: number;
+}
+
+export function stopAfter(maxMs: number, now: () => number = Date.now): () => boolean {
+  const deadline = now() + maxMs;
+  return () => now() >= deadline;
+}
+
+const neverStop = (): boolean => false;
+
 export async function rebuildIfStale(
   store: VectorStore,
   corpus: CorpusFile[],
   embed: EmbeddingProvider,
   embedderIdentity: string | null,
   chunkFn: ChunkFn = chunkFile,
-): Promise<void> {
+  shouldStop: () => boolean = neverStop,
+): Promise<RebuildOutcome> {
   // MUST run before the fingerprint early-return below, not after. Folding
   // the identity into computeCorpusFingerprint() instead was the design
   // first considered and rejected (16/10/2026): if the corpus is
@@ -85,7 +100,7 @@ export async function rebuildIfStale(
   }
 
   const fingerprint = computeCorpusFingerprint(corpus);
-  if (store.getFingerprint() === fingerprint) return;
+  if (store.getFingerprint() === fingerprint) return { completed: true, filesEmbedded: 0 };
 
   const previousHashes = store.getFileHashes();
   const currentPaths = new Set(corpus.map((f) => f.path));
@@ -97,18 +112,23 @@ export async function rebuildIfStale(
     }
   }
 
+  let filesEmbedded = 0;
   for (const file of corpus) {
     const newHash = hashFileContent(file.content);
     if (previousHashes[file.path] === newHash) continue; // unchanged — skip entirely
+    if (shouldStop()) return { completed: false, filesEmbedded };
 
-    store.deleteChunksForSourcePath(file.path); // clear stale chunks if this file existed before
+    const embedded: Array<{ chunkId: string; embedding: number[] }> = [];
     for (const chunk of await chunkFn(file.path, file.content)) {
-      store.upsert(chunk.chunkId, await embed(chunk.text));
+      if (shouldStop()) return { completed: false, filesEmbedded };
+      embedded.push({ chunkId: chunk.chunkId, embedding: await embed(chunk.text) });
     }
-    store.setFileHash(file.path, newHash);
+    store.replaceFileChunks(file.path, embedded, newHash);
+    filesEmbedded += 1;
   }
 
   store.setFingerprint(fingerprint);
+  return { completed: true, filesEmbedded };
 }
 
 /** Searches at chunk granularity, then collapses back to one result per
