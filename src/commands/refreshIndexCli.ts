@@ -17,7 +17,10 @@
 import { existsSync } from "node:fs";
 import { defaultLocalConfigPath } from "../config/config.js";
 import { ensureDependencies, resolvePluginRoot } from "../config/dependencies.js";
+import { withRefreshLock } from "../lock/refreshLock.js";
 import { runRefreshIndex } from "./refreshIndex.js";
+
+const REFRESH_LOCK_MAX_AGE_MS = 30 * 60_000;
 
 async function main(): Promise<void> {
   const [pluginDataDir, projectDir] = process.argv.slice(2);
@@ -28,12 +31,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // A plain `git clone` install (see dependencies.ts) never runs `npm
-  // install` — first real invocation of this hook self-heals it. Cheap
-  // no-op check on every session after the first.
-  const pluginRoot = resolvePluginRoot(import.meta.url);
-  ensureDependencies(pluginRoot);
-
   // Checked explicitly rather than pattern-matching readLocalConfig's error
   // message: a string match would also silently swallow a genuine path
   // resolution bug that happens to produce a similar-looking error, hiding
@@ -43,7 +40,21 @@ async function main(): Promise<void> {
   }
 
   try {
-    const result = await runRefreshIndex(pluginDataDir, projectDir, pluginRoot);
+    const run = await withRefreshLock(pluginDataDir, REFRESH_LOCK_MAX_AGE_MS, async () => {
+      // A plain `git clone` install (see dependencies.ts) never runs `npm
+      // install` — first real invocation of this hook self-heals it. Cheap
+      // no-op check on every session after the first. Under the lock: two
+      // sessions must not run `npm install` in the same folder either.
+      const pluginRoot = resolvePluginRoot(import.meta.url);
+      ensureDependencies(pluginRoot);
+      return runRefreshIndex(pluginDataDir, projectDir, pluginRoot);
+    });
+    if (!run.ran) {
+      const holder = run.heldByPid === null ? "un autre processus" : `le processus ${run.heldByPid}`;
+      console.log(`synapse: un rafraîchissement de l'index tourne déjà (${holder}, depuis ${run.since}), rien à faire.`);
+      return;
+    }
+    const result = run.value;
     if (result.auditTriggered && result.auditReport) {
       const r = result.auditReport;
       console.log(`synapse: audit périodique déclenché (cadence dépassée) — ${r.fileCount} fichiers, ${r.findings.length} signalement(s), ${r.duplicateCandidates.length} doublon(s) probable(s).`);
