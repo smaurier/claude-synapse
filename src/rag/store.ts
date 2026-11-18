@@ -61,6 +61,22 @@ export interface VectorStoreOptions {
 
 const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 
+/** Below this, a rewrite of the file buys nothing worth its disk writes. */
+const DEFAULT_MIN_FREE_BYTES = 1024 * 1024;
+
+export interface IndexCompaction {
+  beforeBytes: number;
+  afterBytes: number;
+}
+
+const SQLITE_BUSY = 5;
+const SQLITE_LOCKED = 6;
+
+function isBusy(err: unknown): boolean {
+  const code = (err as { errcode?: number }).errcode;
+  return code === SQLITE_BUSY || code === SQLITE_LOCKED;
+}
+
 export class VectorStore {
   private db: DatabaseSyncInstance;
   private closed = false;
@@ -244,6 +260,31 @@ export class VectorStore {
     this.db
       .prepare("INSERT INTO meta (key, value) VALUES ('embedderIdentity', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(id);
+  }
+
+  /**
+   * SQLite reuses freed pages but never gives the space back (18/11/2026: 204
+   * of 278.6 Mo free on the pro workstation). A VACUUM rewrites the file, so
+   * only when more than half of it is free and that is worth the rewrite.
+   * Null when there was not enough to reclaim, or when another connection
+   * holds the index: the next refresh tries again.
+   */
+  compactIfMostlyFree({ minFreeBytes = DEFAULT_MIN_FREE_BYTES }: { minFreeBytes?: number } = {}): IndexCompaction | null {
+    const pageSize = this.pragmaNumber("page_size");
+    const pages = this.pragmaNumber("page_count");
+    const freePages = this.pragmaNumber("freelist_count");
+    if (freePages * 2 <= pages || freePages * pageSize < minFreeBytes) return null;
+    try {
+      this.db.exec("VACUUM");
+    } catch (err) {
+      if (isBusy(err)) return null;
+      throw err;
+    }
+    return { beforeBytes: pages * pageSize, afterBytes: this.pragmaNumber("page_count") * pageSize };
+  }
+
+  private pragmaNumber(name: string): number {
+    return Number(Object.values(this.db.prepare(`PRAGMA ${name}`).get() ?? {})[0]);
   }
 
   /** Idempotent on purpose: callers (tests, cleanup paths) shouldn't have to

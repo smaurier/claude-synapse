@@ -32,6 +32,10 @@ export interface VectorStoreOptions {
      *  peu suffit, échouer immédiatement dégraderait le rappel en `{}` pour rien. */
     busyTimeoutMs?: number;
 }
+export interface IndexCompaction {
+    beforeBytes: number;
+    afterBytes: number;
+}
 export declare class VectorStore {
     private db;
     private closed;
@@ -93,6 +97,17 @@ export declare class VectorStore {
      *  migration needed for a store an older plugin version already created. */
     getEmbedderIdentity(): string | null;
     setEmbedderIdentity(id: string): void;
+    /**
+     * SQLite reuses freed pages but never gives the space back (18/11/2026: 204
+     * of 278.6 Mo free on the pro workstation). A VACUUM rewrites the file, so
+     * only when more than half of it is free and that is worth the rewrite.
+     * Null when there was not enough to reclaim, or when another connection
+     * holds the index: the next refresh tries again.
+     */
+    compactIfMostlyFree({ minFreeBytes }?: {
+        minFreeBytes?: number;
+    }): IndexCompaction | null;
+    private pragmaNumber;
     /** Idempotent on purpose: callers (tests, cleanup paths) shouldn't have to
      *  track whether close() was already called. */
     close(): void;

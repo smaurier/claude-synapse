@@ -18,6 +18,7 @@ import { defaultLocalConfigPath } from "../config/config.js";
 import { ensureDependencies, resolvePluginRoot } from "../config/dependencies.js";
 import { releaseRefreshLock, withRefreshLock } from "../lock/refreshLock.js";
 import { stopAfter } from "../rag/search.js";
+import { lowerOwnPriority } from "./processPriority.js";
 import { armHardStop, recordRefreshRun, refreshLockMaxAgeMs, refreshMaxMs } from "./refreshCeiling.js";
 import { runRefreshIndex } from "./refreshIndex.js";
 async function main() {
@@ -34,6 +35,7 @@ async function main() {
     if (!existsSync(defaultLocalConfigPath(pluginDataDir))) {
         return; // not initialized yet — normal, nothing to refresh
     }
+    lowerOwnPriority();
     const startedAt = Date.now();
     const pluginRoot = resolvePluginRoot(import.meta.url);
     const maxMs = refreshMaxMs(pluginDataDir);
@@ -61,6 +63,10 @@ async function main() {
         trace(result.indexCompleted ? "terminé" : "interrompu au plafond", result.filesEmbedded);
         if (!result.indexCompleted) {
             console.log(`synapse: rafraîchissement de l'index interrompu au plafond de ${maxMs / 1000} s, la suite au prochain lancement.`);
+        }
+        if (result.indexCompacted) {
+            const mo = (bytes) => (bytes / 1e6).toFixed(1);
+            console.log(`synapse: index compacté, ${mo(result.indexCompacted.beforeBytes)} Mo → ${mo(result.indexCompacted.afterBytes)} Mo.`);
         }
         if (result.auditTriggered && result.auditReport) {
             const r = result.auditReport;

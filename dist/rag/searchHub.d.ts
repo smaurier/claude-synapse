@@ -9,8 +9,11 @@
  * (corpus.ts's SKIP_DIRS), so it never gets synced or re-indexed as if it
  * were a memory file.
  */
-import { type SearchResult } from "./store.js";
+import { type IndexCompaction, type SearchResult } from "./store.js";
 import { type RebuildOutcome } from "./search.js";
+/** Only the refresh hook calls this, under the refresh lock: one process of
+ *  the workstation rewrites the file, never a search in the middle of one. */
+export declare function compactHubIndex(hubClonePath: string): IndexCompaction | null;
 export interface SearchHubOptions {
     /** `false` : interroger l'index tel quel, sans jamais le reconstruire.
      *  Réservé aux appelants à budget de temps borné (hook UserPromptSubmit) ;

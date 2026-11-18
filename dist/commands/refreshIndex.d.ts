@@ -47,11 +47,14 @@
  * un appelant sans projectDir doit passer `undefined` explicitement, jamais
  * l'omettre.
  */
+import type { IndexCompaction } from "../rag/store.js";
 import { type SynapseDoctorReport } from "./synapseDoctor.js";
 export interface RefreshIndexResult {
     /** False when the time ceiling cut the rebuild short (see refreshCeiling.ts). */
     indexCompleted: boolean;
     filesEmbedded: number;
+    /** Present only when the index file was rewritten to give its free pages back. */
+    indexCompacted?: IndexCompaction;
     auditTriggered: boolean;
     auditReport?: SynapseDoctorReport;
     /** True when the ideas-synthesis cadence (SharedConfig.ideasRefreshCadenceDays)

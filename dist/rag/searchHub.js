@@ -24,6 +24,17 @@ function openHubStore(hubClonePath) {
     mkdirSync(dbDir, { recursive: true });
     return new VectorStore(join(dbDir, "index.sqlite"));
 }
+/** Only the refresh hook calls this, under the refresh lock: one process of
+ *  the workstation rewrites the file, never a search in the middle of one. */
+export function compactHubIndex(hubClonePath) {
+    const store = openHubStore(hubClonePath);
+    try {
+        return store.compactIfMostlyFree();
+    }
+    finally {
+        store.close();
+    }
+}
 export async function searchHub(hubClonePath, query, topK = 10, options = {}) {
     const refreshIndex = options.refreshIndex ?? true;
     ensurePinnedEmbeddingModel(hubClonePath);
