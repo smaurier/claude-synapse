@@ -12,8 +12,8 @@
  * including a slow one: see recallDeadline.ts for the internal deadline.
  */
 
-import { runProactiveRecall } from "./proactiveRecall.js";
-import { withDeadline, recordRecallTimeout, RECALL_DEADLINE_MS } from "./recallDeadline.js";
+import { fileURLToPath } from "node:url";
+import { recordRecallTimeout, RECALL_DEADLINE_MS, runInChildWithDeadline } from "./recallDeadline.js";
 
 async function readStdin(): Promise<string> {
   let data = "";
@@ -32,7 +32,12 @@ async function main(): Promise<void> {
     const raw = await readStdin();
     const payload = JSON.parse(raw) as { prompt?: unknown };
     const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
-    const { value, timedOut } = await withDeadline(runProactiveRecall(pluginDataDir, prompt), RECALL_DEADLINE_MS, {});
+    const { value, timedOut } = await runInChildWithDeadline(
+      fileURLToPath(new URL("./proactiveRecallProcess.js", import.meta.url)),
+      { pluginDataDir, prompt },
+      RECALL_DEADLINE_MS,
+      {},
+    );
     if (timedOut) recordRecallTimeout(pluginDataDir, RECALL_DEADLINE_MS);
     console.log(JSON.stringify(value));
   } catch {
@@ -40,7 +45,6 @@ async function main(): Promise<void> {
   }
 }
 
-// process.exit et pas un simple retour : après l'échéance, l'inférence
-// abandonnée tient encore la boucle d'événements, et le harnais attendrait
-// la fin du processus, donc le timeout qu'on cherche à éviter.
+// process.exit et pas un simple retour : rien ne doit retenir le processus du
+// hook une fois sa réponse écrite, le harnais attend sa fin.
 void main().finally(() => process.exit(0));
