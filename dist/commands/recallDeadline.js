@@ -9,28 +9,55 @@
  * reposait sur un travail fini à temps ; quand il ne l'était pas, c'est le
  * harnais qui tuait le processus, et l'utilisateur voyait une ligne rouge.
  *
- * Le rappel s'arrête donc lui-même, avant le harnais. Le plafond du hook
- * (hooks.json) doit laisser une marge pour deux choses que ce minuteur ne
- * maîtrise pas : la boucle d'événements bloquée par une étape synchrone de
- * l'inférence (0,7 s mesurées à vide, davantage sous charge), et le démarrage
- * de node avant que le minuteur existe. Un test verrouille cette marge.
+ * Le rappel s'arrête donc lui-même, avant le harnais.
+ *
+ * 18/11/2026 : ça ne tenait pas sous charge. CPU saturé, le rappel 0.1.13 à
+ * 0.1.16 prenait 21 à 31 s et finissait même son travail : le minuteur vivait
+ * dans le fil qui travaillait, et la construction du tokenizer (1 s à vide),
+ * la session ONNX, le parcours de l'index et l'import de transformers.js sont
+ * synchrones. Tant qu'ils tournent, aucun minuteur ne part. Le travail passe
+ * donc dans un processus enfant : le hook ne fait qu'attendre, son minuteur
+ * part à l'heure. Un processus et pas un worker thread : à la sortie, node
+ * attend un worker coincé dans un appel natif (chargement du modèle ONNX,
+ * lecture SQLite), alors qu'un enfant se tue sur-le-champ. Le plafond du hook
+ * (hooks.json) garde une marge pour le démarrage de node avant que le
+ * minuteur existe ; un test la verrouille.
  */
+import { spawn } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 export const RECALL_DEADLINE_MS = 8000;
-/** Le résultat du travail s'il arrive avant `ms`, sinon `fallback`. Un échec
- *  du travail rend aussi `fallback` (contrat fail-silent du rappel), mais ne
- *  compte pas comme un dépassement. */
-export function withDeadline(work, ms, fallback) {
+/** Lance `script` dans un processus node enfant, `input` en JSON sur son
+ *  entrée. Rend sa sortie JSON si elle arrive avant `ms` ; sinon tue l'enfant
+ *  et rend `fallback`. Un enfant qui plante ou ne répond pas un JSON rend
+ *  aussi `fallback` (contrat fail-silent du rappel), sans compter comme un
+ *  dépassement. */
+export function runInChildWithDeadline(script, input, ms, fallback) {
     return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve({ value: fallback, timedOut: true }), ms);
-        work.then((value) => {
+        const child = spawn(process.execPath, [script], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+        let settled = false;
+        const settle = (result) => {
+            if (settled)
+                return;
+            settled = true;
             clearTimeout(timer);
-            resolve({ value, timedOut: false });
-        }, () => {
-            clearTimeout(timer);
-            resolve({ value: fallback, timedOut: false });
+            child.kill("SIGKILL");
+            resolve(result);
+        };
+        const timer = setTimeout(() => settle({ value: fallback, timedOut: true }), ms);
+        let output = "";
+        child.stdout.on("data", (chunk) => (output += chunk.toString("utf8")));
+        child.on("error", () => settle({ value: fallback, timedOut: false }));
+        child.on("close", () => {
+            try {
+                settle({ value: JSON.parse(output), timedOut: false });
+            }
+            catch {
+                settle({ value: fallback, timedOut: false });
+            }
         });
+        child.stdin.on("error", () => { }); // a child that dies early closes its stdin under our feet
+        child.stdin.end(JSON.stringify(input));
     });
 }
 export function recallTimeoutLogPath(pluginDataDir) {
