@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { acquireLock, acquireLockWithRetry, releaseLock } from "../src/lock/lock.js";
+import { dirname, join } from "node:path";
+import {
+  acquireLock,
+  acquireLockWithRetry,
+  releaseLock,
+  syncLockTakeoverPath,
+  takeOverStaleSyncLock,
+} from "../src/lock/lock.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
 let hubDir: string;
@@ -120,6 +126,83 @@ describe("acquireLock, deux processus sur le même poste", () => {
     releaseLock(hubDir, "workstation-a", process.pid);
     const result = acquireLock(hubDir, "workstation-a", 10, new Date(), process.pid);
     expect(result.acquired).toBe(false);
+  });
+});
+
+// 18/11/2026 : même enchaînement « lire, supprimer, créer » que le verrou de
+// refresh corrigé en 0.1.16. Sonde jetable sur la 0.1.16, huit processus lancés
+// ensemble devant le verrou d'un processus mort : deux à sept tenants à chaque
+// tour (20 sur 20), et des plantages ENOENT quand un autre avait déjà supprimé
+// le fichier. L'enjeu ici : deux opérations git en même temps dans le hub.
+describe("reprise du verrou du hub à plusieurs", () => {
+  const lockFile = (): string => join(hubDir, ".synapse", ".sync-lock");
+  const holderOnDisk = (): unknown => JSON.parse(readFileSync(lockFile(), "utf8"));
+  const deadHolder = (): { machineId: string; pid: number; acquiredAt: string } => ({
+    machineId: "workstation-a",
+    pid: spawnSync(process.execPath, ["-e", ""]).pid as number,
+    acquiredAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  const writeLock = (holder: object): void => writeFileSync(lockFile(), JSON.stringify(holder), "utf8");
+
+  it("ne supprime pas le verrou qu'un autre vient de reprendre", () => {
+    const observedBeforeTheOtherTookOver = deadHolder();
+    acquireLock(hubDir, "workstation-a", 10, new Date(), process.ppid);
+    const freshLock = holderOnDisk();
+
+    const took = takeOverStaleSyncLock(hubDir, observedBeforeTheOtherTookOver, "workstation-a", process.pid, new Date());
+
+    expect(took).toBe(false);
+    expect(holderOnDisk()).toEqual(freshLock);
+  });
+
+  it("ne plante pas quand le verrou périmé a déjà disparu, et le prend", () => {
+    const vanished = deadHolder();
+
+    const took = takeOverStaleSyncLock(hubDir, vanished, "workstation-a", process.pid, new Date());
+
+    expect(took).toBe(true);
+    expect(holderOnDisk()).toMatchObject({ machineId: "workstation-a", pid: process.pid });
+  });
+
+  it("laisse la main quand un autre processus est déjà en train de reprendre", () => {
+    const dead = deadHolder();
+    writeLock(dead);
+    writeFileSync(syncLockTakeoverPath(hubDir), "");
+
+    const result = acquireLock(hubDir, "workstation-a", 10, new Date(), process.pid);
+
+    expect(result.acquired).toBe(false);
+    expect(holderOnDisk()).toEqual(dead);
+  });
+
+  it("passe outre une reprise abandonnée en route", () => {
+    writeLock(deadHolder());
+    writeFileSync(syncLockTakeoverPath(hubDir), "");
+    const aMinuteAgo = new Date(Date.now() - 60_000);
+    utimesSync(syncLockTakeoverPath(hubDir), aMinuteAgo, aMinuteAgo);
+
+    expect(acquireLock(hubDir, "workstation-a", 10, new Date(), process.pid).acquired).toBe(true);
+  });
+
+  it("ne laisse aucune trace de la reprise une fois le verrou pris", () => {
+    writeLock(deadHolder());
+
+    acquireLock(hubDir, "workstation-a", 10, new Date(), process.pid);
+
+    expect(existsSync(syncLockTakeoverPath(hubDir))).toBe(false);
+  });
+
+  it("ne plante pas sur un verrou pris entre sa création et son écriture, et ne le reprend pas", () => {
+    writeFileSync(lockFile(), "");
+
+    const result = acquireLock(hubDir, "workstation-a", 10, new Date(), process.pid);
+
+    expect(result.acquired).toBe(false);
+    expect(readFileSync(lockFile(), "utf8")).toBe("");
+  });
+
+  it("le marqueur de reprise vit à côté du verrou, dans .synapse/", () => {
+    expect(dirname(syncLockTakeoverPath(hubDir))).toBe(join(hubDir, ".synapse"));
   });
 });
 

@@ -29,17 +29,7 @@ export type LockedRun<T> = {
 };
 export declare function refreshLockPath(pluginDataDir: string): string;
 export declare function takeoverMarkerPath(pluginDataDir: string): string;
-/**
- * Replaces a stale lock, one process at a time. Deleting the stale file and
- * creating one's own are two steps: without the marker, a process that read
- * the stale lock a moment earlier deleted the fresh lock of whoever took over
- * first, then created its own (measured 17/11/2026: three to eight holders
- * out of eight processes started together). Under the marker, the lock is
- * read again and only deleted if it is still the one seen stale.
- *
- * Residual: a marker abandoned by a process killed mid-takeover is cleared
- * by age, and that clearing is not itself serialized.
- */
+/** Replaces a stale lock, one process at a time (see takeoverMarker.ts). */
 export declare function takeOverStaleLock(pluginDataDir: string, observed: RefreshLockHolder, pid: number, now: Date): boolean;
 /**
  * Not re-entrant on purpose: a process asking twice means two refreshes.
