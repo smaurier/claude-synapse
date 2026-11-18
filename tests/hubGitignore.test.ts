@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { ensureHubGitignore } from "../src/config/hubGitignore.js";
+import { syncLockTakeoverPath } from "../src/lock/lock.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
 let hubDir: string;
@@ -22,6 +23,12 @@ describe("ensureHubGitignore", () => {
     const content = readFileSync(join(hubDir, ".gitignore"), "utf8");
     expect(content).toContain(".synapse/index.sqlite");
     expect(content).toContain(".synapse/.sync-lock");
+  });
+
+  it("ignore aussi le marqueur de reprise du verrou : un `git add -A` ne doit jamais l'emporter", () => {
+    ensureHubGitignore(hubDir);
+    const lines = readFileSync(join(hubDir, ".gitignore"), "utf8").split("\n");
+    expect(lines).toContain(relative(hubDir, syncLockTakeoverPath(hubDir)).split(sep).join("/"));
   });
 
   it("is idempotent — a second call is a no-op", () => {

@@ -10,8 +10,16 @@
  * two Claude sessions on the same machine share a machineId, and the old
  * "same machine re-acquires" rule handed the lock to both at once, then
  * whichever finished first released the other's lock. Creation is atomic
- * (flag "wx"), so two processes racing on an absent lock can't both win.
+ * (flag "wx"), so two processes racing on an absent lock can't both win,
+ * and replacing a stale lock goes through a takeover marker (18/11/2026,
+ * see takeoverMarker.ts), so two processes reclaiming it can't both win.
  */
+export interface LockFile {
+    machineId: string;
+    /** Absent in locks written by 0.1.13 and earlier. */
+    pid?: number;
+    acquiredAt: string;
+}
 export type AcquireResult = {
     acquired: true;
 } | {
@@ -19,7 +27,12 @@ export type AcquireResult = {
     heldBy: string;
     since: string;
 };
+/** Must stay ignored by the hub's git (hubGitignore.ts). */
+export declare function syncLockTakeoverPath(hubDir: string): string;
 export declare function isProcessAlive(pid: number): boolean;
+/** Replaces the stale lock `observed`, one process at a time: under the
+ *  marker, the lock is read again and only replaced if it is still that one. */
+export declare function takeOverStaleSyncLock(hubDir: string, observed: LockFile, machineId: string, pid: number, now: Date): boolean;
 /**
  * Attempts to acquire the whole-repo lock.
  * - No lock present -> acquired (atomically).

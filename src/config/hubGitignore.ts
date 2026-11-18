@@ -15,7 +15,12 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const REQUIRED_LINES = [".synapse/index.sqlite", ".synapse/*.sqlite-journal", ".synapse/.sync-lock"];
+const REQUIRED_LINES = [
+  ".synapse/index.sqlite",
+  ".synapse/*.sqlite-journal",
+  ".synapse/.sync-lock",
+  ".synapse/.sync-lock.takeover",
+];
 
 /** Idempotent: returns true if it wrote something, false if already complete. */
 export function ensureHubGitignore(hubDir: string): boolean {

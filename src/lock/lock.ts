@@ -10,13 +10,16 @@
  * two Claude sessions on the same machine share a machineId, and the old
  * "same machine re-acquires" rule handed the lock to both at once, then
  * whichever finished first released the other's lock. Creation is atomic
- * (flag "wx"), so two processes racing on an absent lock can't both win.
+ * (flag "wx"), so two processes racing on an absent lock can't both win,
+ * and replacing a stale lock goes through a takeover marker (18/11/2026,
+ * see takeoverMarker.ts), so two processes reclaiming it can't both win.
  */
 
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { underTakeoverMarker } from "./takeoverMarker.js";
 
-interface LockFile {
+export interface LockFile {
   machineId: string;
   /** Absent in locks written by 0.1.13 and earlier. */
   pid?: number;
@@ -27,17 +30,37 @@ export type AcquireResult =
   | { acquired: true }
   | { acquired: false; heldBy: string; since: string };
 
+/** Holder of a lock file caught between its atomic creation and its write. */
+const UNREADABLE_HOLDER = "inconnu (verrou en cours d'écriture)";
+
 function lockPath(hubDir: string): string {
   return join(hubDir, ".synapse", ".sync-lock");
 }
 
+/** Must stay ignored by the hub's git (hubGitignore.ts). */
+export function syncLockTakeoverPath(hubDir: string): string {
+  return join(hubDir, ".synapse", ".sync-lock.takeover");
+}
+
+/** An unreadable file is a lock still being written: its age comes from the
+ *  file itself and its holder is unknown, so it is never reclaimed at once. */
 function readLock(hubDir: string): LockFile | null {
+  const path = lockPath(hubDir);
   try {
-    return JSON.parse(readFileSync(lockPath(hubDir), "utf8")) as LockFile;
+    const raw = readFileSync(path, "utf8");
+    try {
+      return JSON.parse(raw) as LockFile;
+    } catch {
+      return { machineId: UNREADABLE_HOLDER, acquiredAt: statSync(path).mtime.toISOString() };
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;
   }
+}
+
+function isSameLock(a: LockFile, b: LockFile): boolean {
+  return a.machineId === b.machineId && a.pid === b.pid && a.acquiredAt === b.acquiredAt;
 }
 
 /** Atomic create: false if a lock file already exists. */
@@ -78,6 +101,19 @@ function isReclaimable(existing: LockFile, machineId: string, timeoutMinutes: nu
   return existing.pid === undefined || !isProcessAlive(existing.pid);
 }
 
+/** Replaces the stale lock `observed`, one process at a time: under the
+ *  marker, the lock is read again and only replaced if it is still that one. */
+export function takeOverStaleSyncLock(hubDir: string, observed: LockFile, machineId: string, pid: number, now: Date): boolean {
+  return underTakeoverMarker(syncLockTakeoverPath(hubDir), now, () => {
+    const current = readLock(hubDir);
+    if (current !== null) {
+      if (!isSameLock(current, observed)) return false;
+      rmSync(lockPath(hubDir), { force: true });
+    }
+    return tryCreateLock(hubDir, machineId, pid, now);
+  });
+}
+
 /**
  * Attempts to acquire the whole-repo lock.
  * - No lock present -> acquired (atomically).
@@ -107,8 +143,7 @@ export function acquireLock(
   if (existing.machineId === machineId && existing.pid === pid) return { acquired: true };
 
   if (isReclaimable(existing, machineId, timeoutMinutes, now)) {
-    unlinkSync(lockPath(hubDir));
-    if (tryCreateLock(hubDir, machineId, pid, now)) return { acquired: true };
+    if (takeOverStaleSyncLock(hubDir, existing, machineId, pid, now)) return { acquired: true };
     const winner = readLock(hubDir);
     return { acquired: false, heldBy: winner ? describeHolder(winner) : "inconnu", since: winner?.acquiredAt ?? now.toISOString() };
   }
