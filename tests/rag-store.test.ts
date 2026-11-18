@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { VectorStore } from "../src/rag/store.js";
 import { rmTree } from "./helpers/fsTemp.js";
 
+// Same workaround as src/rag/store.ts: a static import of node:sqlite trips Vite.
+const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
+
 let root: string;
 let dbPath: string;
 let store: VectorStore;
@@ -184,4 +187,64 @@ describe("VectorStore — verrou SQLite concurrent", () => {
       other.close();
     }
   }, 10_000);
+});
+
+// 18/11/2026 : l'index du poste pro faisait 278,6 Mo, dont 204 Mo de pages
+// libres (73 %), laissées par les refresh qui réécrivaient en boucle les
+// chunks d'une fiche de 693 Ko. SQLite réutilise ces pages mais ne rend jamais
+// la place : seul un VACUUM la rend.
+describe("VectorStore.compactIfMostlyFree", () => {
+  const bigEmbedding = Array.from({ length: 10_000 }, (_, i) => i / 10_000); // about 72 Ko per row
+  const fillThenEmpty = (rows: number): void => {
+    for (let i = 0; i < rows; i++) store.upsert(`junk-${i}`, bigEmbedding);
+    store.clear();
+  };
+
+  it("rend la place quand plus de la moitié de l'index est libre", () => {
+    fillThenEmpty(20);
+
+    const compaction = store.compactIfMostlyFree({ minFreeBytes: 1024 * 1024 });
+
+    expect(compaction).not.toBeNull();
+    expect(compaction!.afterBytes).toBeLessThan(compaction!.beforeBytes / 4);
+  });
+
+  it("ne touche à rien quand moins de la moitié est libre", () => {
+    for (let i = 0; i < 20; i++) store.upsert(`garde#${i}`, bigEmbedding);
+    for (let i = 0; i < 5; i++) store.upsert(`jette#${i}`, bigEmbedding);
+    store.deleteChunksForSourcePath("jette");
+
+    expect(store.compactIfMostlyFree({ minFreeBytes: 0 })).toBeNull();
+  });
+
+  it("ne touche à rien sous le plancher, même vide à plus de moitié", () => {
+    fillThenEmpty(20);
+
+    expect(store.compactIfMostlyFree({ minFreeBytes: 100 * 1024 * 1024 })).toBeNull();
+  });
+
+  it("garde les données intactes", () => {
+    store.upsert("garde.md", [1, 0, 0]);
+    fillThenEmpty(20);
+    store.upsert("garde.md", [1, 0, 0]);
+
+    store.compactIfMostlyFree({ minFreeBytes: 1024 * 1024 });
+
+    expect(store.search([1, 0, 0], 1)[0]?.path).toBe("garde.md");
+  });
+
+  it("renonce sans planter quand un lecteur tient l'index, la prochaine fois suffira", () => {
+    store.close();
+    store = new VectorStore(dbPath, { busyTimeoutMs: 50 });
+    fillThenEmpty(20);
+    const reader = new DatabaseSync(dbPath);
+    reader.exec("BEGIN");
+    reader.prepare("SELECT count(*) FROM vectors").get();
+    try {
+      expect(store.compactIfMostlyFree({ minFreeBytes: 1024 * 1024 })).toBeNull();
+    } finally {
+      reader.exec("COMMIT");
+      reader.close();
+    }
+  });
 });

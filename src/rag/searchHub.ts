@@ -14,7 +14,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadHubCorpus } from "./corpus.js";
 import { ensurePinnedEmbeddingModel, getEmbedderIdentity } from "./embedderIdentity.js";
-import { VectorStore, type SearchResult } from "./store.js";
+import { VectorStore, type IndexCompaction, type SearchResult } from "./store.js";
 import { isIndexCurrent, type RebuildOutcome } from "./search.js";
 
 // production.js pulls in @huggingface/transformers (0.75 to 1 s to import,
@@ -26,6 +26,17 @@ function openHubStore(hubClonePath: string): VectorStore {
   const dbDir = join(hubClonePath, ".synapse");
   mkdirSync(dbDir, { recursive: true });
   return new VectorStore(join(dbDir, "index.sqlite"));
+}
+
+/** Only the refresh hook calls this, under the refresh lock: one process of
+ *  the workstation rewrites the file, never a search in the middle of one. */
+export function compactHubIndex(hubClonePath: string): IndexCompaction | null {
+  const store = openHubStore(hubClonePath);
+  try {
+    return store.compactIfMostlyFree();
+  } finally {
+    store.close();
+  }
 }
 
 export interface SearchHubOptions {

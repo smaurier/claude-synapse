@@ -48,7 +48,7 @@
  * l'omettre.
  */
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig, recordMachineSeen } from "../config/config.js";
-import { refreshHubIndex } from "../rag/searchHub.js";
+import { compactHubIndex, refreshHubIndex } from "../rag/searchHub.js";
 import { defaultModelCacheDir } from "../rag/embedderIdentity.js";
 import { ensureCurrentProjectLinked, projectMemoryLinkPath } from "./refreshProjects.js";
 import { runSynapseDoctor } from "./synapseDoctor.js";
@@ -87,7 +87,9 @@ export async function runRefreshIndex(pluginDataDir, projectDir, pluginRoot, sho
             useModelCacheDir(defaultModelCacheDir(pluginDataDir));
         },
     });
-    const index = { indexCompleted, filesEmbedded };
+    // A rebuild cut short by the ceiling has no time left for a rewrite.
+    const indexCompacted = indexCompleted ? compactHubIndex(localConfig.hubClonePath) : null;
+    const index = { indexCompleted, filesEmbedded, ...(indexCompacted && { indexCompacted }) };
     // Read once, shared by both triggers below. Unlike the audit, the ideas-refresh
     // signal doesn't need projectDir (no linkPath to derive — it never runs anything
     // itself, see the file-level comment), so it's checked unconditionally.
