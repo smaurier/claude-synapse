@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { fetchRepoStats, watchKnownCompetitors, searchForNewCompetitors, searchForNewCompetitorsMultiQuery, runMarketWatch } from "../src/commands/marketWatch.js";
+import {
+  fetchRepoStats,
+  watchKnownCompetitors,
+  searchForNewCompetitors,
+  searchForNewCompetitorsMultiQuery,
+  runMarketWatch,
+  isDormant,
+  truncateDescription,
+  formatMarketWatchReport,
+  DORMANT_AFTER_DAYS,
+} from "../src/commands/marketWatch.js";
 
 function fakeFetch(responses: Record<string, { status: number; body: unknown }>): typeof fetch {
   return (async (input: string | URL | Request) => {
@@ -197,5 +207,206 @@ describe("runMarketWatch", () => {
     );
     expect(report.knownCompetitors).toEqual([{ fullName: "someone/added-earlier", stars: 9, url: "z" }]);
     expect(report.possibleNewEntrants).toEqual([]);
+  });
+});
+
+// 19/11/2026 : tri du rapport (items 1 à 5 de la veille du 19/11). Le rapport
+// réel affichait claude-brain deux fois, aucune description (impossible de
+// trier sans cliquer), aucun point de comparaison pour Synapse lui-même, et
+// aucun signal pour les dépôts en sommeil.
+function recordingFetch(responses: Record<string, { status: number; body: unknown }>): { fetchImpl: typeof fetch; urls: string[] } {
+  const urls: string[] = [];
+  const inner = fakeFetch(responses);
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    urls.push(input.toString());
+    return inner(input, init);
+  }) as typeof fetch;
+  return { fetchImpl, urls };
+}
+
+describe("watchKnownCompetitors : dédoublonnage", () => {
+  it("ne suit qu'une fois un dépôt présent à la fois dans la liste de base et dans les sources ajoutées, casse comprise", async () => {
+    const { fetchImpl, urls } = recordingFetch({
+      "toroleapinc/claude-brain": { status: 200, body: { stargazers_count: 95, html_url: "x" } },
+    });
+    const results = await watchKnownCompetitors(fetchImpl, ["toroleapinc/claude-brain", "ToroLeapInc/Claude-Brain"]);
+    expect(results.filter((r) => r.fullName.toLowerCase() === "toroleapinc/claude-brain")).toHaveLength(1);
+    expect(urls.filter((u) => u.toLowerCase().endsWith("/repos/toroleapinc/claude-brain"))).toHaveLength(1);
+  });
+});
+
+describe("liste connue : ajouts du 19/11", () => {
+  it("suit hippo-memory, recall, total-recall et claude-db sans qu'on les ajoute à la main", async () => {
+    const { fetchImpl, urls } = recordingFetch({});
+    await watchKnownCompetitors(fetchImpl);
+    for (const repo of ["kitfunso/hippo-memory", "raiyanyahya/recall", "davegoldblatt/total-recall", "Avijit07x/claude-db"]) {
+      expect(urls).toContain(`https://api.github.com/repos/${repo}`);
+    }
+  });
+});
+
+describe("descriptions", () => {
+  it("fetchRepoStats remonte la description du dépôt", async () => {
+    const stats = await fetchRepoStats(
+      "example/repo",
+      fakeFetch({ "example/repo": { status: 200, body: { stargazers_count: 1, html_url: "u", pushed_at: "p", description: "Une mémoire." } } }),
+    );
+    expect(stats?.description).toBe("Une mémoire.");
+  });
+
+  it("searchForNewCompetitors remonte la description de chaque résultat", async () => {
+    const results = await searchForNewCompetitors(
+      "q",
+      fakeFetch({
+        "search/repositories": {
+          status: 200,
+          body: { items: [{ full_name: "a/b", stargazers_count: 2, html_url: "u", pushed_at: "p", description: "Autre mémoire." }] },
+        },
+      }),
+    );
+    expect(results[0]?.description).toBe("Autre mémoire.");
+  });
+});
+
+describe("searchForNewCompetitors : exclusion insensible à la casse", () => {
+  it("n'affiche pas comme nouveau un dépôt connu écrit avec une autre casse", async () => {
+    const results = await searchForNewCompetitors(
+      "q",
+      fakeFetch({
+        "search/repositories": { status: 200, body: { items: [{ full_name: "Toroleapinc/Claude-Brain", stargazers_count: 95, html_url: "x" }] } },
+      }),
+      ["toroleapinc/claude-brain"],
+    );
+    expect(results).toEqual([]);
+  });
+});
+
+describe("runMarketWatch : Synapse comme référence", () => {
+  it("met Synapse à part, hors des concurrents et hors des nouveaux entrants", async () => {
+    const report = await runMarketWatch(
+      fakeFetch({
+        "repos/smaurier/claude-synapse": { status: 200, body: { stargazers_count: 1, html_url: "s", pushed_at: "2026-11-18T00:00:00Z" } },
+        "search/repositories": {
+          status: 200,
+          body: { items: [{ full_name: "smaurier/claude-synapse", stargazers_count: 1, html_url: "s", pushed_at: "2026-11-18T00:00:00Z" }] },
+        },
+      }),
+    );
+    expect(report.self).toEqual({ fullName: "smaurier/claude-synapse", stars: 1, url: "s", pushedAt: "2026-11-18T00:00:00Z" });
+    expect(report.possibleNewEntrants).toEqual([]);
+    expect(report.knownCompetitors.map((r) => r.fullName)).not.toContain("smaurier/claude-synapse");
+  });
+
+  it("ne suit pas Synapse comme concurrent même si l'utilisateur l'a ajouté aux sources", async () => {
+    const synapse = { status: 200, body: { stargazers_count: 1, html_url: "s", pushed_at: "2026-11-18T00:00:00Z" } };
+    const report = await runMarketWatch(
+      fakeFetch({
+        // Les deux casses répondent : sans exclusion, la source ajoutée serait
+        // bien récupérée et finirait dans les concurrents (le test peut rougir).
+        "repos/smaurier/claude-synapse": synapse,
+        "repos/Smaurier/Claude-Synapse": synapse,
+        "search/repositories": { status: 200, body: { items: [] } },
+      }),
+      ["Smaurier/Claude-Synapse"],
+    );
+    expect(report.knownCompetitors.map((r) => r.fullName.toLowerCase())).not.toContain("smaurier/claude-synapse");
+  });
+
+  it("rend self à null si le dépôt de Synapse est injoignable, sans faire échouer le rapport", async () => {
+    const report = await runMarketWatch(fakeFetch({ "search/repositories": { status: 200, body: { items: [] } } }));
+    expect(report.self).toBeNull();
+  });
+});
+
+describe("isDormant", () => {
+  const now = new Date("2026-11-19T12:00:00Z");
+
+  it(`est vrai au-delà de ${DORMANT_AFTER_DAYS} jours sans push`, () => {
+    expect(isDormant("2026-06-09T01:00:30Z", now)).toBe(true);
+  });
+
+  it(`est faux à ${DORMANT_AFTER_DAYS} jours pile ou moins`, () => {
+    expect(isDormant("2026-08-21T12:00:00Z", now)).toBe(false);
+    expect(isDormant("2026-11-18T00:00:00Z", now)).toBe(false);
+  });
+
+  it("est faux quand la date est absente ou illisible, plutôt que d'affirmer un sommeil non prouvé", () => {
+    expect(isDormant(undefined, now)).toBe(false);
+    expect(isDormant("pas une date", now)).toBe(false);
+  });
+});
+
+describe("truncateDescription", () => {
+  it("laisse intacte une description courte", () => {
+    expect(truncateDescription("Une mémoire.", 20)).toBe("Une mémoire.");
+  });
+
+  it("coupe une description longue sur une frontière de mot et le signale", () => {
+    expect(truncateDescription("One memory for every agent you will ever use", 20)).toBe("One memory for every…");
+  });
+
+  it("aplatit les retours à la ligne et les espaces multiples", () => {
+    expect(truncateDescription("Ligne un\n\n  ligne   deux", 80)).toBe("Ligne un ligne deux");
+  });
+});
+
+describe("formatMarketWatchReport", () => {
+  const now = new Date("2026-11-19T12:00:00Z");
+  const report = {
+    self: {
+      fullName: "smaurier/claude-synapse",
+      stars: 1,
+      url: "https://github.com/smaurier/claude-synapse",
+      pushedAt: "2026-11-18T20:24:31Z",
+      description: "Don't sync, link.",
+    },
+    knownCompetitors: [
+      {
+        fullName: "zilliztech/memsearch",
+        stars: 2905,
+        url: "https://github.com/zilliztech/memsearch",
+        pushedAt: "2026-11-19T07:05:58Z",
+        description: "A persistent, unified memory layer.",
+      },
+      { fullName: "toroleapinc/claude-brain", stars: 95, url: "https://github.com/toroleapinc/claude-brain", pushedAt: "2026-06-09T01:00:30Z" },
+    ],
+    possibleNewEntrants: [
+      {
+        fullName: "kitfunso/hippo-memory",
+        stars: 794,
+        url: "https://github.com/kitfunso/hippo-memory",
+        pushedAt: "2026-11-19T10:45:36Z",
+        description: "One memory for every agent.",
+      },
+    ],
+  };
+  const lines = (): string[] => formatMarketWatchReport(report, now);
+  const text = (): string => lines().join("\n");
+
+  it("ouvre sur la ligne de référence de Synapse", () => {
+    expect(lines()[0]).toContain("smaurier/claude-synapse");
+    expect(lines()[0]).toContain("1★");
+  });
+
+  it("affiche la description sous chaque dépôt qui en a une", () => {
+    expect(text()).toContain("A persistent, unified memory layer.");
+    expect(text()).toContain("One memory for every agent.");
+  });
+
+  it("marque en sommeil un dépôt sans push depuis plus de 90 jours, et seulement lui", () => {
+    expect(lines().find((l) => l.includes("toroleapinc/claude-brain"))).toMatch(/en sommeil/);
+    expect(lines().find((l) => l.includes("zilliztech/memsearch"))).not.toMatch(/en sommeil/);
+  });
+
+  it("n'écrit aucun tiret cadratin", () => {
+    expect(text()).not.toContain("—");
+  });
+
+  it("annonce l'absence de nouvel entrant plutôt qu'une section vide", () => {
+    expect(formatMarketWatchReport({ ...report, possibleNewEntrants: [] }, now).join("\n")).toContain("Aucun nouvel entrant détecté.");
+  });
+
+  it("signale quand la référence Synapse est indisponible", () => {
+    expect(formatMarketWatchReport({ ...report, self: null }, now)[0]).toMatch(/Synapse.*indisponible/);
   });
 });
