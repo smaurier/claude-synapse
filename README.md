@@ -4,50 +4,74 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node >= 22.5](https://img.shields.io/badge/node-%3E%3D22.5-brightgreen)
 
-**Don't sync memory across machines — link it.**
+**Your Claude Code memory is a git repo.**
 
-Most tools that keep Claude Code's memory consistent across machines *sync* it: copy files
-back and forth, merge on conflict, hope nothing diverges. Synapse takes a different position —
-there is exactly **one** physical copy of your memory (a git repo you own), and every machine,
-every project, references it through a filesystem link (an NTFS junction on Windows, a symlink
-elsewhere). Nothing to merge, because nothing is ever duplicated in the first place.
+You teach Claude something in one project, and the next project has never heard of it.
+You switch to your other machine, and it's gone again.
+
+Synapse gives Claude Code one memory, shared by every project on every machine. That memory is a
+plain git repo you own. Not a backup of it, not a sync of it: the repo *is* the memory.
+
+So everything you already know from git now works on what your AI remembers:
+
+- `git log`: when did Claude learn this, and on which machine?
+- `git diff`: what changed in its memory this week?
+- `git revert`: it learned something wrong? Undo it.
+
+## Quick start
 
 ```
-                        ┌───────────────────────┐
-                        │   hub — a git repo     │
-                        │   you own, ONE copy    │
-                        └───────────┬───────────┘
-                        junction / symlink, never a copy
-              ┌─────────────────────┼─────────────────────┐
-      ┌───────▼───────┐     ┌───────▼───────┐     ┌───────▼───────┐
-      │ machine A      │     │ machine B      │     │ machine A      │
-      │ project 1      │     │ project 1      │     │ project 2      │
-      │ .claude/memory │     │ .claude/memory │     │ .claude/memory │
-      └───────────────┘     └───────────────┘     └───────────────┘
+/plugin marketplace add smaurier/claude-synapse
+/plugin install synapse@synapse
+/synapse-init
 ```
 
-## How it works
+Give `/synapse-init` the URL of a **private** git repo: that repo becomes your hub. Run it again in
+any other project, or on any other machine, and they all share the same memory.
 
-1. You point Synapse at a private git repo — the **hub**. It gets cloned once per machine.
-2. Every project that wants memory gets a link (`<project>/.claude/memory` by default) pointing
-   straight at that one clone. Read or write through the link, and you're reading or writing the
-   hub directly — no sync step in between.
-3. A `SessionStart` hook keeps a local RAG index fresh (semantic + exact-match search) when the
-   hub changed since last time. A `SessionEnd` hook commits and pushes automatically, gated by a
-   secret scan — nothing with a shape resembling a credential ever gets committed silently.
+Requires Node >= 22.5 (the local search index uses `node:sqlite`, a builtin from that version on).
 
-That's the whole mechanism. Everything else (linting the memory, watching for stale links,
-flagging probable duplicates, tracking the competitive landscape) is built on top of it, never
-a second source of truth.
+## What you get
 
-## Why link instead of sync
+- **Recall without asking.** Before Claude answers, Synapse searches your memory and hands it the
+  few notes that matter for this prompt.
+- **Search it yourself.** `/brain-search` combines semantic and exact-match search, so names and
+  acronyms are found too, not just ideas.
+- **Saved on its own.** At the end of every session, changes are committed and pushed, with the
+  machine name in the commit message, after a secret scan.
+- **Private by design.** Synapse refuses a public GitHub repo as a hub. The search index stays on
+  your machine and is never committed.
+- **A memory that stays healthy.** `/brain-lint` and `/synapse-doctor` flag expired notes, probable
+  duplicates and broken links. Report only: you decide what to change.
+- **Survives compaction.** The memories you searched for during a session are handed back to
+  Claude after a compaction.
+- **Cross-platform.** NTFS junctions on Windows, symlinks on macOS and Linux.
+
+## Don't sync it. Link it.
+
+```
+              ┌──────────────────────────────┐
+              │   your private git remote    │
+              └───────┬──────────────┬───────┘
+                 push │ pull    push │ pull
+              ┌───────▼──────┐ ┌─────▼────────┐
+              │  machine A   │ │  machine B   │
+              │  one clone   │ │  one clone   │
+              └──┬────────┬──┘ └──────┬───────┘
+            link │   link │      link │
+                 ▼        ▼           ▼
+            project 1 project 2   project 1
+```
+
+Each machine holds one clone of your hub. Every project on that machine reads and writes it
+through a filesystem link, so there is nothing to copy between projects. Between machines, it's
+plain git.
 
 |  | Sync-based tools | Synapse |
 |---|---|---|
-| Physical copies | One per machine, reconciled | Exactly one, ever |
-| Conflicts | Possible — needs a merge strategy | Structurally impossible — nothing to merge |
-| New machine | A sync/merge step | Just a link, reading the same file the others do |
-| Hub unreachable | Sync fails or partially applies | Nothing to write; nothing to reconcile once it's back |
+| Where your memory lives | On each machine, copied to a remote and back | In a git repo you own: the repo is the memory |
+| Two machines disagree | Merged by the tool's own logic, sometimes by an LLM | Merged by git, in the open, with full history |
+| New machine | Install, then a first sync | Clone once, link every project to it |
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the full reasoning and trade-offs, not just the pitch.
 
@@ -55,64 +79,49 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full reasoning and trade-offs, no
 
 | Command | What it does |
 |---|---|
-| `/synapse-init` | First-time setup: clone/link the hub for this project. Idempotent — safe to re-run. |
-| `/brain-search` | Hybrid search (semantic + exact match) across the hub. |
-| `/brain-new` | Scaffold a new memory file with the conventional frontmatter. |
-| `/brain-status` | Quick health snapshot for the current project: link state, corpus size, last audit. |
-| `/brain-lint` | Frontmatter validity, expired entries, probable duplicates, split candidates — report only. |
-| `/synapse-doctor` | Broader periodic audit (link, index, lint, remembered project roots, device registry) in one report. Auto-fixes only a broken link — never a wrong-target one, that's a human call. |
-| `/synapse-deps-update` | Applies the safe subset of dependency fixes (dev-only, non-major) in the plugin's own development repo — detection-only everywhere else, this is the one place the owner explicitly asked for an apply step. |
-| `/synapse-config` | Read or edit the hub's shared config, or forget a retired machine — never by hand-editing a file. |
-| `/synapse-refresh-projects` | Link every Claude Code project found under a given root, in one pass — the root is remembered, so `/synapse-doctor` keeps re-scanning it on its own afterwards. |
-| `/synapse-sync` | Manual commit + push, in case the automatic hook didn't run. |
-| `/synapse-commit` | How a session commits into the hub: only the named paths, under the hub lock, then push. When several sessions share the hub, one session's `git add -A` would sweep another's edits; this commits nothing else, and names the commit a path already went into when another session took it. |
-| `/synapse-market-watch` | Read-only GitHub scan of comparable projects — never acts on what it finds. |
-| `/synapse-ideas-refresh` | Recoups the hub's ideas registry against its real current state and updates it. Model judgment, same rule as `/brain-audit`: never triggered blind by a hook — only the staleness signal is. |
+| `/synapse-init` | Link this project to your hub. Safe to re-run. |
+| `/brain-search` | Search your memory: semantic and exact match. |
+| `/brain-new` | Create a memory file with the conventional frontmatter. |
+| `/brain-status` | Link state, corpus size and last audit for this project. |
+| `/synapse-doctor` | Full periodic check-up in one report. Its only auto-fix is a broken link. |
+
+<details>
+<summary>14 more commands</summary>
+
+| Command | What it does |
+|---|---|
+| `/brain-lint` | Frontmatter validity, expired entries, probable duplicates, split candidates. Report only. |
+| `/brain-audit` | Semantic audit of one memory or a small group: contradictions, dead data, findability. On demand, never automatic. |
+| `/synapse-refresh-projects` | Link every Claude Code project under a root in one pass. The root is remembered, so later audits keep scanning it. |
+| `/synapse-register-project` | Register a project's local path on this machine, so memories that cite its code can resolve it. |
+| `/synapse-sync` | Commit and push now, in case the automatic hook didn't run. |
+| `/synapse-commit` | Commit only the named paths into the hub, under the hub lock, then push. Safe when several sessions share the hub. |
+| `/synapse-sync-status` | Check every watched repo for local/remote divergence. Alerts only, never pulls or pushes. |
+| `/synapse-config` | Read or edit the hub's shared config, or forget a retired machine, without hand-editing a file. |
+| `/synapse-recent-sessions` | List your recent Claude Code sessions on this machine: date, title, project. |
+| `/synapse-market-watch` | Read-only GitHub scan of comparable projects. |
+| `/synapse-ideas-refresh` | Check the hub's ideas registry against reality and update it. On demand only. |
+| `/synapse-redteam` | Manual red-team of memory poisoning: can adversarial content in the hub steer the agent? |
+| `/synapse-deps-update` | Apply the safe subset of dependency fixes (dev-only, non-major) in the plugin's own development repo. |
 | `/synapse-uninstall` | Remove the link and local config for this project. The hub itself is never touched. |
 
-## Install
+</details>
 
-```
-/plugin marketplace add smaurier/claude-synapse
-/plugin install synapse@synapse
-```
+## Status
 
-(This repo doubles as its own marketplace — no separate listing to submit to.) Dev mode also
-works, without registering a marketplace:
+Used every day by its author across two machines. 600+ tests, CI on Ubuntu and Windows.
+The design decisions, the trade-offs made on purpose and the known limits are documented in
+[`docs/DESIGN.md`](docs/DESIGN.md).
+
+To try it without registering a marketplace:
 
 ```bash
 claude --plugin-dir /path/to/claude-synapse
 ```
 
-Then run `/synapse-init` and give it the URL of a **private** git repo to use as your hub
-(Synapse refuses to link a public one on GitHub — memory doesn't belong in a public repo).
-Requires Node >= 22.5 (the local search index uses `node:sqlite`, a builtin only available from
-that version on).
-
-## Status
-
-Core mechanism built and tested: **632 tests**, real-hub validation (not just fixtures) surfaced
-and fixed several real bugs along the way — a lexical fallback for bare-acronym search, word-
-boundary matching to avoid false positives, incremental indexing, and (item 44) two deterministic
-rules for probable duplicates — a slug-stem collision and a verbatim n-gram overlap — replacing a
-cosine-similarity detector that scored unrelated fiches (0.832-0.834) higher than some genuinely
-related ones (0.69-0.83): no threshold could separate the two populations. Scale-tested too, not
-just assumed: search stays fast
-into the thousands of files; the old embedding-based duplicate detector was the one piece that
-didn't (O(n²) over a per-file model call), and rather than guard it against a file-count ceiling
-it was replaced outright — both new rules are O(n²) over cheap in-memory set operations, no model
-call and no ceiling needed. Self-hosted marketplace listing added — see Install above.
-`/synapse-init` still configures one project at a time by hand, but a root scanned once via
-`/synapse-refresh-projects` now stays covered automatically on every later periodic audit.
-
-## Learn more
-
-[`docs/DESIGN.md`](docs/DESIGN.md) covers the architecture decisions behind each piece, the
-trade-offs made on purpose, and the limitations documented as such rather than left implicit.
-
 ## Contributing
 
-Bug reports, improvement requests, and suggestions are welcome — [open an issue](https://github.com/smaurier/claude-synapse/issues/new).
+Bug reports, improvement requests and suggestions are welcome: [open an issue](https://github.com/smaurier/claude-synapse/issues/new).
 
 ## License
 
