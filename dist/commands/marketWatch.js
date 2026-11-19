@@ -1,8 +1,8 @@
 /**
  * /synapse-market-watch (périmètre IN) — report only, GitHub API,
  * unauthenticated (same reasoning as hubVisibility.ts: a read-only public
- * check, no token worth the setup friction). Tracks the 6 known direct
- * competitors identified during the design study (13/08), plus whatever the
+ * check, no token worth the setup friction). Tracks the known direct
+ * competitors (6 from the design study of 13/08, grown since), plus whatever the
  * user has added via SharedConfig.marketWatchExtraSources (14/08 — the
  * hardcoded list below can't grow without a new plugin version otherwise),
  * and searches for new ones matching relevant keywords — never acts on what
@@ -27,7 +27,43 @@ const KNOWN_COMPETITORS = [
     // cross-machine via un repo git prive) que ce projet-ci, plus petit
     // (132★) mais un point de comparaison direct reel.
     "HelloRuru/claude-memory-engine",
+    // Ajoutés 19/11 : remontés comme nouveaux entrants par la veille du jour
+    // et lus (descriptions) : mémoire persistante pour Claude Code, voisins
+    // directs. hippo-memory pousse « une seule mémoire, lue par tous les
+    // agents » : la thèse de Synapse sur l'axe des agents au lieu des machines.
+    "kitfunso/hippo-memory",
+    "raiyanyahya/recall",
+    "davegoldblatt/total-recall",
+    "Avijit07x/claude-db",
 ];
+/** Synapse lui-même : affiché en tête comme point de comparaison, jamais
+ *  compté parmi les concurrents ni remonté comme nouvel entrant. */
+const SELF_REPO = "smaurier/claude-synapse";
+/** Au-delà, un dépôt est signalé « en sommeil » dans le rapport. Signalé,
+ *  jamais filtré : le sommeil reste un jugement humain (cf. pushedAt). */
+export const DORMANT_AFTER_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DESCRIPTION_MAX_LENGTH = 100;
+/** Les noms de dépôts GitHub sont insensibles à la casse. */
+function sameRepo(a, b) {
+    return a.toLowerCase() === b.toLowerCase();
+}
+/** Dédoublonne sans tenir compte de la casse, garde la première graphie.
+ *  Sans ça, un dépôt présent dans la liste de base ET dans
+ *  marketWatchExtraSources sortait deux fois (claude-brain, 19/11). */
+function uniqueRepos(names) {
+    const seen = new Set();
+    return names.filter((name) => {
+        const key = name.toLowerCase();
+        if (seen.has(key))
+            return false;
+        seen.add(key);
+        return true;
+    });
+}
+function withDescription(description) {
+    return description ? { description } : {};
+}
 export async function fetchRepoStats(fullName, fetchImpl = fetch) {
     const res = await fetchImpl(`https://api.github.com/repos/${fullName}`, {
         headers: { Accept: "application/vnd.github+json" },
@@ -35,10 +71,10 @@ export async function fetchRepoStats(fullName, fetchImpl = fetch) {
     if (res.status !== 200)
         return null;
     const data = (await res.json());
-    return { fullName, stars: data.stargazers_count, url: data.html_url, pushedAt: data.pushed_at };
+    return { fullName, stars: data.stargazers_count, url: data.html_url, pushedAt: data.pushed_at, ...withDescription(data.description) };
 }
 export async function watchKnownCompetitors(fetchImpl = fetch, extraSources = []) {
-    const all = [...KNOWN_COMPETITORS, ...extraSources];
+    const all = uniqueRepos([...KNOWN_COMPETITORS, ...extraSources]).filter((name) => !sameRepo(name, SELF_REPO));
     const results = await Promise.all(all.map((name) => fetchRepoStats(name, fetchImpl)));
     return results.filter((r) => r !== null).sort((a, b) => b.stars - a.stars);
 }
@@ -49,14 +85,21 @@ export async function searchForNewCompetitors(query, fetchImpl = fetch, excludeF
     if (res.status !== 200)
         return [];
     const data = (await res.json());
+    const excluded = new Set(excludeFullNames.map((name) => name.toLowerCase()));
     return data.items
-        .filter((item) => !excludeFullNames.includes(item.full_name))
+        .filter((item) => !excluded.has(item.full_name.toLowerCase()))
         // Backlog A (16/08, item codé 01/11): a fork is never an independent
         // competitor, it's a copy of a project already counted elsewhere —
         // objective noise, unlike pushedAt below (surfaced for a human to judge,
         // never filtered, because staleness IS a judgment call).
         .filter((item) => !item.fork)
-        .map((item) => ({ fullName: item.full_name, stars: item.stargazers_count, url: item.html_url, pushedAt: item.pushed_at }));
+        .map((item) => ({
+        fullName: item.full_name,
+        stars: item.stargazers_count,
+        url: item.html_url,
+        pushedAt: item.pushed_at,
+        ...withDescription(item.description),
+    }));
 }
 /**
  * Runs several query variants and merges the results, deduplicated by repo.
@@ -72,7 +115,7 @@ export async function searchForNewCompetitorsMultiQuery(queries, fetchImpl = fet
     const results = await Promise.all(queries.map((q) => searchForNewCompetitors(q, fetchImpl, excludeFullNames)));
     const byFullName = new Map();
     for (const r of results.flat())
-        byFullName.set(r.fullName, r);
+        byFullName.set(r.fullName.toLowerCase(), r);
     return [...byFullName.values()].sort((a, b) => b.stars - a.stars);
 }
 /**
@@ -93,11 +136,65 @@ const SEARCH_QUERIES = [
     "topic:claude-code-plugin memory",
 ];
 export async function runMarketWatch(fetchImpl = fetch, extraSources = []) {
-    const allKnown = [...KNOWN_COMPETITORS, ...extraSources];
-    const [knownCompetitors, possibleNewEntrants] = await Promise.all([
+    const excludedFromSearch = [...KNOWN_COMPETITORS, ...extraSources, SELF_REPO];
+    const [self, knownCompetitors, possibleNewEntrants] = await Promise.all([
+        fetchRepoStats(SELF_REPO, fetchImpl),
         watchKnownCompetitors(fetchImpl, extraSources),
-        searchForNewCompetitorsMultiQuery(SEARCH_QUERIES, fetchImpl, allKnown),
+        searchForNewCompetitorsMultiQuery(SEARCH_QUERIES, fetchImpl, excludedFromSearch),
     ]);
-    return { knownCompetitors, possibleNewEntrants };
+    return { self, knownCompetitors, possibleNewEntrants };
+}
+function daysSince(pushedAt, now) {
+    if (!pushedAt)
+        return null;
+    const pushed = Date.parse(pushedAt);
+    if (Number.isNaN(pushed))
+        return null;
+    return (now.getTime() - pushed) / DAY_MS;
+}
+/** Vrai au-delà de DORMANT_AFTER_DAYS jours sans push. Faux si la date
+ *  manque ou est illisible : on ne déclare pas un sommeil qu'on ne prouve pas. */
+export function isDormant(pushedAt, now) {
+    const days = daysSince(pushedAt, now);
+    return days !== null && days > DORMANT_AFTER_DAYS;
+}
+/** Une ligne, coupée sur une frontière de mot, « … » si coupée. */
+export function truncateDescription(text, maxLength = DESCRIPTION_MAX_LENGTH) {
+    const flat = text.replace(/\s+/g, " ").trim();
+    if (flat.length <= maxLength)
+        return flat;
+    const window = flat.slice(0, maxLength + 1);
+    const lastSpace = window.lastIndexOf(" ");
+    const head = lastSpace > 0 ? window.slice(0, lastSpace) : flat.slice(0, maxLength);
+    return `${head.replace(/[\s,;:.]+$/, "")}…`;
+}
+function describeRepo(repo, now) {
+    const pushed = repo.pushedAt ? repo.pushedAt.slice(0, 10) : "inconnu";
+    const days = daysSince(repo.pushedAt, now);
+    const sleeping = isDormant(repo.pushedAt, now) && days !== null ? `, en sommeil (${Math.floor(days)} j sans push)` : "";
+    return `${repo.fullName} : ${repo.stars}★, dernier push ${pushed}${sleeping} (${repo.url})`;
+}
+function repoLines(repo, now) {
+    const lines = [`  ${describeRepo(repo, now)}`];
+    if (repo.description)
+        lines.push(`      ${truncateDescription(repo.description)}`);
+    return lines;
+}
+/** Le rapport tel que la CLI l'affiche, une ligne par élément. `now` est
+ *  injecté pour que le marquage « en sommeil » soit testable. */
+export function formatMarketWatchReport(report, now, maxNewEntrants = 10) {
+    const lines = [report.self ? `Référence Synapse : ${describeRepo(report.self, now)}` : "Référence Synapse : indisponible (dépôt injoignable)."];
+    lines.push("Concurrents connus (par étoiles) :");
+    for (const repo of report.knownCompetitors)
+        lines.push(...repoLines(repo, now));
+    if (report.possibleNewEntrants.length > 0) {
+        lines.push("Nouveaux entrants possibles (non déjà suivis, plusieurs requêtes dont une par topic) :");
+        for (const repo of report.possibleNewEntrants.slice(0, maxNewEntrants))
+            lines.push(...repoLines(repo, now));
+    }
+    else {
+        lines.push("Aucun nouvel entrant détecté.");
+    }
+    return lines;
 }
 //# sourceMappingURL=marketWatch.js.map

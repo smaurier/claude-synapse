@@ -10,7 +10,7 @@
  */
 
 import { readLocalConfig, defaultLocalConfigPath, readSharedConfig } from "../config/config.js";
-import { runMarketWatch } from "./marketWatch.js";
+import { formatMarketWatchReport, runMarketWatch } from "./marketWatch.js";
 
 function readExtraSources(pluginDataDir: string | undefined): string[] {
   if (!pluginDataDir) return [];
@@ -29,20 +29,7 @@ async function main(): Promise<void> {
     const [pluginDataDir] = process.argv.slice(2);
     const extraSources = readExtraSources(pluginDataDir);
     const report = await runMarketWatch(fetch, extraSources);
-
-    console.log("Concurrents connus (par étoiles) :");
-    for (const r of report.knownCompetitors) {
-      console.log(`  ${r.fullName} — ${r.stars}★, dernier push ${r.pushedAt} (${r.url})`);
-    }
-
-    if (report.possibleNewEntrants.length > 0) {
-      console.log("Nouveaux entrants possibles (non déjà suivis, plusieurs requêtes dont une par topic) :");
-      for (const r of report.possibleNewEntrants.slice(0, 10)) {
-        console.log(`  ${r.fullName} — ${r.stars}★, dernier push ${r.pushedAt} (${r.url})`);
-      }
-    } else {
-      console.log("Aucun nouvel entrant détecté.");
-    }
+    for (const line of formatMarketWatchReport(report, new Date())) console.log(line);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
